@@ -1,0 +1,98 @@
+# Production-style stack for Aviator simulator
+# Usage:
+#   1. Copy .env.example → .env and set secrets + public URLs
+#   2. docker compose up -d --build
+#   3. Open PUBLIC_WEB_URL (default http://localhost:3000)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aviator-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aviator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aviator_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-aviator}
+    # Do not publish 5432 on host by default (avoids clash with local Postgres).
+    # Uncomment if you need host tools to connect: "5433:5432"
+    # ports:
+    #   - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aviator} -d ${POSTGRES_DB:-aviator}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: aviator-redis
+    restart: unless-stopped
+    # Internal only; uncomment to expose Redis on host: "6379:6379"
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: aviator-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://aviator:aviator_secret@postgres:5432/aviator?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-long-random-string}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-long-random}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-${PUBLIC_WEB_URL:-http://localhost:3000}}
+      GAME_TICK_MS: ${GAME_TICK_MS:-16}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Browser-facing API URL (not the docker-internal hostname)
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+        NEXT_PUBLIC_WS_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+    container_name: aviator-web
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_WS_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

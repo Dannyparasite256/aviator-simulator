@@ -1,0 +1,64 @@
+# Render Blueprint — always-on cloud deploy (PC can be off)
+# https://render.com/docs/blueprint-spec
+# After connecting the GitHub repo in Render, this file creates all services.
+
+databases:
+  - name: aviator-db
+    plan: free
+    databaseName: aviator
+    user: aviator
+
+services:
+  - type: web
+    name: aviator-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aviator-db
+          property: connectionString
+      - key: REDIS_URL
+        value: ""
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: LOG_LEVEL
+        value: info
+      - key: GAME_TICK_MS
+        value: "16"
+
+  - type: web
+    name: aviator-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    # After first deploy, set these build-time vars to the public API URL, e.g.
+    # https://aviator-api.onrender.com  then clear build cache + redeploy web.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_WS_URL
+        sync: false

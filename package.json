@@ -1,0 +1,43 @@
+{
+  "name": "aviator-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "High-performance crash game simulator for educational and software engineering purposes only. No real-money gambling.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm run start:dev -w @aviator/api",
+    "dev:web": "npm run dev -w @aviator/web",
+    "build": "npm run build -w @aviator/shared && npm run build -w @aviator/api && npm run build -w @aviator/web",
+    "test": "npm run test -w @aviator/api && npm run test -w @aviator/web",
+    "test:e2e": "npm run test:e2e -w @aviator/api",
+    "lint": "npm run lint -w @aviator/api && npm run lint -w @aviator/web",
+    "db:generate": "npm run prisma:generate -w @aviator/api",
+    "db:migrate": "npm run prisma:migrate -w @aviator/api",
+    "db:seed": "npm run prisma:seed -w @aviator/api",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "host": "powershell -ExecutionPolicy Bypass -File scripts/host-local.ps1",
+    "e2e:smoke": "node scripts/e2e-smoke.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "@scarf/scarf@1.4.0": true,
+    "bcrypt@5.1.1": true,
+    "esbuild@0.28.1": true,
+    "prisma@6.19.3": true,
+    "sharp@0.34.5": true
+  }
+}
