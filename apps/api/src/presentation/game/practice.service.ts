@@ -328,6 +328,7 @@ export class PracticeService implements OnModuleInit {
       this.engine.emitLive({
         id: bet.id,
         kind: 'user',
+        userId,
         displayName: user.displayName,
         avatarHue: 200,
         slot,
@@ -400,6 +401,7 @@ export class PracticeService implements OnModuleInit {
     this.engine.emitLive({
       id: bet.id,
       kind: 'user',
+      userId,
       displayName: u?.displayName ?? 'Player',
       avatarHue: 200,
       slot,
@@ -594,6 +596,7 @@ export class PracticeService implements OnModuleInit {
     this.engine.emitLive({
       id: betId,
       kind: 'user',
+      userId,
       displayName: u?.displayName ?? 'Player',
       avatarHue: 200,
       slot,

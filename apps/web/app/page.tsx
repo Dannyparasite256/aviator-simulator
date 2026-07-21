@@ -100,9 +100,16 @@ export default function HomePage() {
             <BetSlotPanel slot={1} compact />
             <BetSlotPanel slot={2} compact />
           </div>
+
+          {/* Mobile feed strip — All / My Bets / Top without leaving play view */}
+          {!focusMode && (
+            <div className="min-h-[132px] max-h-[28vh] shrink-0 lg:hidden">
+              <LiveFeed compact />
+            </div>
+          )}
         </div>
 
-        {/* Live feed — large screens only so mobile never scrolls past bets */}
+        {/* Desktop live feed */}
         {!focusMode && (
           <div className="hidden min-h-0 lg:col-span-4 lg:block xl:col-span-3">
             <LiveFeed compact />

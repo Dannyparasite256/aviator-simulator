@@ -239,6 +239,7 @@ export class GameEngineService extends EventEmitter implements OnModuleInit, OnM
       this.emitLive({
         id: bet.betId,
         kind: 'user',
+        userId: bet.userId,
         displayName: bet.displayName ?? 'Player',
         avatarHue: 200,
         slot: bet.slot,
@@ -501,6 +502,7 @@ export class GameEngineService extends EventEmitter implements OnModuleInit, OnM
       this.emitLive({
         id: bet.betId,
         kind: 'user',
+        userId: bet.userId,
         displayName: bet.displayName ?? 'Player',
         avatarHue: 200,
         slot: bet.slot,

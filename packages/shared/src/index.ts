@@ -217,6 +217,8 @@ export interface LiveBetFeedItem {
   kind: 'user' | 'bot';
   displayName: string;
   avatarHue: number;
+  /** Present for real-user practice bets — preferred for “My Bets” filtering */
+  userId?: string;
   slot?: BetSlot;
   amount: number;
   type: 'BET' | 'CASH_OUT' | 'BUST' | 'PARTIAL' | 'CANCEL';
