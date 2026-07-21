@@ -28,6 +28,7 @@ export class WalletService {
     const currencies = await this.listCurrencies();
     const preferred =
       currencies.find((c) => c.code === user.preferredCurrency) ??
+      currencies.find((c) => c.code === 'UGX') ??
       currencies.find((c) => c.code === 'USD') ??
       currencies[0];
     const vc = Number(user.virtualCredits);

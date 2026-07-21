@@ -7,13 +7,14 @@ import { useGameStore } from '@/lib/game-store';
 import { api } from '@/lib/api';
 import { playSfx } from '@/lib/sound';
 import { useUiStore } from '@/lib/ui-store';
+import { formatMoney } from '@/lib/currency';
 
 /**
  * Mobile sticky cash-out bar when any bet is live during FLYING.
  */
 export function StickyCashOut() {
   const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
+  const setCredits = useAuthStore((s) => s.setCredits);
   const phase = useGameStore((s) => s.phase);
   const multiplier = useGameStore((s) => s.multiplier);
   const bets = useGameStore((s) => s.bets);
@@ -44,7 +45,7 @@ export function StickyCashOut() {
     const optimisticWin = Math.round(bet.remainingAmount * multiplier * 100) / 100;
     const optimisticProfit = Math.round((optimisticWin - bet.remainingAmount) * 100) / 100;
     const snapshot = { ...bet };
-    const prevCredits = user.virtualCredits;
+    const prevCredits = Math.round(Number(user.virtualCredits) || 0);
 
     setBusy(slot);
     setBet(slot, {
@@ -55,10 +56,9 @@ export function StickyCashOut() {
       profit: optimisticProfit,
       remainingAmount: 0,
     });
-    setUser({ ...user, virtualCredits: prevCredits + optimisticWin });
+    setCredits(prevCredits + optimisticWin);
     playSfx('cashout');
     recordCashOut(multiplier);
-    // Light haptic when available
     try {
       navigator.vibrate?.(12);
     } catch {
@@ -67,7 +67,7 @@ export function StickyCashOut() {
     pushToast({
       kind: 'win',
       title: `Cash out @ ${multiplier.toFixed(2)}x`,
-      body: `+${optimisticProfit.toFixed(2)} vc (confirming…)`,
+      body: `${formatMoney(optimisticProfit, { signed: true })} (confirming…)`,
     });
 
     try {
@@ -90,13 +90,13 @@ export function StickyCashOut() {
         queued: false,
         partialProfit: result.partialProfit ?? 0,
       });
-      setUser({ ...user, virtualCredits: result.virtualCredits });
+      setCredits(result.virtualCredits);
       if (result.cashOutMultiplier != null) {
         recordCashOut(Number(result.cashOutMultiplier));
       }
     } catch (e) {
       setBet(slot, snapshot);
-      setUser({ ...user, virtualCredits: prevCredits });
+      setCredits(prevCredits);
       setLastError((e as Error).message);
       pushToast({ kind: 'error', title: 'Cash out failed', body: (e as Error).message });
     } finally {
@@ -126,10 +126,10 @@ export function StickyCashOut() {
                 Cash out {liveSlots.length > 1 ? `· Bet ${slot}` : ''}
               </span>
               <span className="font-mono text-base font-extrabold tabular-nums">
-                {win.toFixed(2)} vc
+                {formatMoney(win)}
               </span>
               <span className="font-mono text-[11px] opacity-80">
-                @{multiplier.toFixed(2)}x · +{profit.toFixed(2)}
+                @{multiplier.toFixed(2)}x · {formatMoney(profit, { signed: true, compact: true })}
               </span>
             </button>
           );

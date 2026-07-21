@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { useGameStore } from '@/lib/game-store';
 import { useUiStore } from '@/lib/ui-store';
 import { unlockAudio } from '@/lib/sound';
 import { PreferencesMenu } from '@/components/layout/PreferencesMenu';
+import { CURRENCY_LABEL } from '@/lib/currency';
 
 const STATIC_NAV = [
   { href: '/', label: 'Play' },
@@ -26,7 +27,8 @@ export function TopBar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [displayCredits, setDisplayCredits] = useState(0);
-  const [prevCredits, setPrevCredits] = useState(0);
+  const creditsFromRef = useRef(0);
+  const animRef = useRef(0);
 
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -55,36 +57,37 @@ export function TopBar() {
     }
   }, [colorTheme, reducedMotion, mounted]);
 
-  // Smooth credit count-up
+  // Animate balance toward server value (always ends exactly on target)
   useEffect(() => {
     if (!mounted || !user) {
       setDisplayCredits(0);
+      creditsFromRef.current = 0;
       return;
     }
-    const target = user.virtualCredits;
-    if (reducedMotion) {
-      setDisplayCredits(target);
-      setPrevCredits(target);
-      return;
-    }
-    const from = prevCredits || target;
-    if (Math.abs(from - target) < 0.01) {
+    const target = Math.round(Number(user.virtualCredits) || 0);
+    if (reducedMotion || Math.abs(creditsFromRef.current - target) < 0.5) {
+      creditsFromRef.current = target;
       setDisplayCredits(target);
       return;
     }
+    const from = creditsFromRef.current;
+    cancelAnimationFrame(animRef.current);
     const start = performance.now();
-    const dur = 450;
-    let raf = 0;
+    const dur = 320;
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / dur);
       const eased = 1 - Math.pow(1 - t, 3);
-      setDisplayCredits(from + (target - from) * eased);
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else setPrevCredits(target);
+      const v = from + (target - from) * eased;
+      setDisplayCredits(v);
+      if (t < 1) {
+        animRef.current = requestAnimationFrame(tick);
+      } else {
+        creditsFromRef.current = target;
+        setDisplayCredits(target);
+      }
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
   }, [user?.virtualCredits, mounted, reducedMotion]);
 
   const showMuted = mounted ? muted : false;
@@ -94,7 +97,7 @@ export function TopBar() {
   const showUser = mounted ? user : null;
   const showCredits =
     mounted && user
-      ? displayCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      ? Math.round(displayCredits).toLocaleString(undefined, { maximumFractionDigits: 0 })
       : '—';
   const showStreak = mounted ? winStreak : 0;
   const showBest = mounted ? sessionBest : 0;
@@ -194,7 +197,9 @@ export function TopBar() {
             <span className="font-mono text-sm font-bold tabular-nums text-av-gold sm:text-[15px]">
               {showCredits}
             </span>
-            <span className="text-[10px] font-semibold uppercase text-av-muted">vc</span>
+            <span className="text-[10px] font-semibold uppercase text-av-muted">
+              {CURRENCY_LABEL}
+            </span>
           </div>
 
           {showUser ? (

@@ -126,7 +126,7 @@ export default function HomePage() {
       </div>
 
       <div className="hidden shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-av-border bg-av-panel px-3 py-1 text-[10px] text-av-muted sm:flex">
-        <span>Virtual credits only · Provably fair</span>
+        <span>UGX simulation only · Provably fair</span>
         <div className="flex flex-wrap gap-2">
           <Link href="/verify" className="font-semibold text-white/70 hover:text-white">
             Fairness

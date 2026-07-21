@@ -59,7 +59,7 @@ export function Navbar() {
               <div className="hidden text-right sm:block">
                 <div className="text-sm font-medium">{user.displayName}</div>
                 <div className="font-mono text-[11px] text-accent-gold">
-                  {user.virtualCredits.toLocaleString()} vc
+                  {Math.round(Number(user.virtualCredits) || 0).toLocaleString()} UGX
                   {user.sessionProfit !== 0 && (
                     <span className={user.sessionProfit >= 0 ? ' text-accent-lime' : ' text-accent-red'}>
                       {' '}

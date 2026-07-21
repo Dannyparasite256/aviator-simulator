@@ -58,7 +58,7 @@ model User {
   displayName        String
   role               Role           @default(USER)
   virtualCredits     Decimal        @default(10000) @db.Decimal(18, 2)
-  preferredCurrency  String         @default("USD")
+  preferredCurrency  String         @default("UGX")
   clientSeed         String         @default("aviator-default-client")
   minBet             Decimal        @default(1) @db.Decimal(18, 2)
   maxBet             Decimal        @default(100000) @db.Decimal(18, 2)

@@ -8,6 +8,7 @@ import { useGameStore } from '@/lib/game-store';
 import { api } from '@/lib/api';
 import { playSfx, unlockAudio } from '@/lib/sound';
 import { useUiStore } from '@/lib/ui-store';
+import { formatMoney, moneyUnit } from '@/lib/currency';
 
 interface Props {
   slot: BetSlot;
@@ -22,7 +23,7 @@ const QUICK_COMPACT = [10, 50, 100, 500];
 
 export function BetSlotPanel({ slot, compact = false }: Props) {
   const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
+  const setCredits = useAuthStore((s) => s.setCredits);
   const phase = useGameStore((s) => s.phase);
   const multiplier = useGameStore((s) => s.multiplier);
   const bet = useGameStore((s) => s.bets[slot]);
@@ -175,7 +176,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
         cashedOut: false,
         partialProfit: result.partialProfit ?? 0,
       });
-      setUser({ ...user, virtualCredits: result.virtualCredits });
+      setCredits(result.virtualCredits);
       setLastError(null);
       playSfx('bet');
       try {
@@ -186,7 +187,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
       pushToast({
         kind: 'info',
         title: result.queued || result.status === 'QUEUED' ? `Bet ${slot} queued` : `Bet ${slot} placed`,
-        body: `${amt} VC`,
+        body: formatMoney(amt),
       });
     } catch (e) {
       const msg = (e as Error).message;
@@ -226,10 +227,10 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
               cashedOut: false,
               partialProfit: result.partialProfit ?? 0,
             });
-            setUser({ ...user, virtualCredits: result.virtualCredits });
+            setCredits(result.virtualCredits);
             setLastError(null);
             playSfx('bet');
-            pushToast({ kind: 'info', title: `Bet ${slot} placed`, body: `${amt} VC` });
+            pushToast({ kind: 'info', title: `Bet ${slot} placed`, body: formatMoney(amt) });
             return;
           }
         } catch {
@@ -248,7 +249,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
     void unlockAudio();
 
     const snapshot = { ...activeBet };
-    const prevCredits = user.virtualCredits;
+    const prevCredits = Math.round(Number(user.virtualCredits) || 0);
     const cashAmount = Math.round(activeBet.remainingAmount * fraction * 100) / 100;
     const optimisticWin = Math.round(cashAmount * multiplier * 100) / 100;
     const optimisticProfit = Math.round((optimisticWin - cashAmount) * 100) / 100;
@@ -262,7 +263,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
         profit: optimisticProfit,
         remainingAmount: 0,
       });
-      setUser({ ...user, virtualCredits: prevCredits + optimisticWin });
+      setCredits(prevCredits + optimisticWin);
     }
     playSfx('cashout');
     recordCashOut(multiplier);
@@ -297,18 +298,19 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
         cashedOut: result.cashedOut,
         cashOutMultiplier: result.cashOutMultiplier,
       });
-      setUser({ ...user, virtualCredits: result.virtualCredits });
+      // Always trust server balance (absolute)
+      setCredits(result.virtualCredits);
       if (result.cashOutMultiplier != null) {
         recordCashOut(Number(result.cashOutMultiplier));
       }
       pushToast({
         kind: 'win',
         title: `Cashed out @ ${Number(result.cashOutMultiplier).toFixed(2)}x`,
-        body: `${result.profit >= 0 ? '+' : ''}${Number(result.profit).toFixed(2)} VC`,
+        body: formatMoney(Number(result.profit) || 0, { signed: true }),
       });
     } catch (e) {
       setBet(slot, snapshot);
-      setUser({ ...user, virtualCredits: prevCredits });
+      setCredits(prevCredits);
       setLastError((e as Error).message);
       pushToast({ kind: 'error', title: 'Cash out failed', body: (e as Error).message });
     } finally {
@@ -325,8 +327,8 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
         body: JSON.stringify({ slot }),
       });
       setBet(slot, null);
-      setUser({ ...user, virtualCredits: result.virtualCredits });
-      pushToast({ kind: 'info', title: 'Bet cancelled', body: 'Credits returned' });
+      setCredits(result.virtualCredits);
+      pushToast({ kind: 'info', title: 'Bet cancelled', body: 'Balance restored' });
     } catch (e) {
       setLastError((e as Error).message);
     } finally {
@@ -441,7 +443,9 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
       <div className={compact ? 'mb-1.5' : 'mb-2'}>
         {!compact && (
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[11px] font-medium text-av-muted">Bet amount (VC)</span>
+            <span className="text-[11px] font-medium text-av-muted">
+              Bet amount ({moneyUnit()})
+            </span>
             <button
               type="button"
               className="text-[11px] font-bold text-av-gold hover:underline"
@@ -618,7 +622,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
               {phase === 'WAITING' || phase === 'COUNTDOWN' ? 'Bet' : 'Next round'}
             </span>
             <span className="font-mono text-[10px] font-semibold opacity-90 sm:text-xs">
-              {safeAmount.toLocaleString()} VC
+              {formatMoney(safeAmount)}
             </span>
           </button>
           {placeDisabledReason && safeAmount > credits && (
@@ -655,15 +659,15 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
               Cash Out
             </span>
             <span className="font-mono text-xs font-bold tabular-nums sm:text-sm">
-              {(livePotential ?? activeBet.remainingAmount * multiplier).toFixed(2)} VC
+              {formatMoney(livePotential ?? activeBet.remainingAmount * multiplier)}
             </span>
             {!compact && (
               <span className="text-[10px] font-semibold opacity-80">
-                +
-                {(
+                {formatMoney(
                   (livePotential ?? activeBet.remainingAmount * multiplier) -
-                  activeBet.remainingAmount
-                ).toFixed(2)}{' '}
+                    activeBet.remainingAmount,
+                  { signed: true },
+                )}{' '}
                 profit
               </span>
             )}
@@ -690,7 +694,7 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
               Locked
             </div>
             <div className={`font-mono font-bold ${compact ? 'text-sm' : 'mt-0.5 text-lg'}`}>
-              {activeBet.remainingAmount} VC
+              {formatMoney(activeBet.remainingAmount)}
             </div>
             {activeBet.autoCashOutAt != null && (
               <div className="text-[10px] text-av-muted">Auto @ {activeBet.autoCashOutAt}x</div>
@@ -711,13 +715,14 @@ export function BetSlotPanel({ slot, compact = false }: Props) {
 
       {bet?.cashedOut && bet.cashOutMultiplier != null && !activeBet && !compact && (
         <p className="mt-2 text-center text-xs font-semibold text-av-green">
-          Last win @ {bet.cashOutMultiplier.toFixed(2)}x · +{bet.profit?.toFixed(2)} VC
+          Last win @ {bet.cashOutMultiplier.toFixed(2)}x ·{' '}
+          {formatMoney(bet.profit ?? 0, { signed: true })}
         </p>
       )}
 
       {!activeBet && user && !compact && (
         <p className="mt-2 text-center text-[10px] text-av-muted">
-          Potential ~{potential.toLocaleString()} VC · Balance {credits.toLocaleString()} VC
+          Potential ~{formatMoney(potential)} · Balance {formatMoney(credits)}
         </p>
       )}
 

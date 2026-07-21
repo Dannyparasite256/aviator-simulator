@@ -15,6 +15,8 @@ interface AuthState {
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   setUser: (user: PublicUser) => void;
+  /** Apply absolute balance from the server (source of truth). */
+  setCredits: (virtualCredits: number) => void;
 }
 
 function normalizeEmail(email: string) {
@@ -108,8 +110,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   refreshUser: async () => {
     const user = await api<PublicUser>('/users/me');
-    set({ user });
+    set({
+      user: {
+        ...user,
+        virtualCredits: Math.round(Number(user.virtualCredits) || 0),
+      },
+    });
   },
 
-  setUser: (user) => set({ user }),
+  setUser: (user) =>
+    set({
+      user: {
+        ...user,
+        virtualCredits: Math.round(Number(user.virtualCredits) || 0),
+      },
+    }),
+
+  setCredits: (virtualCredits) =>
+    set((s) => {
+      if (!s.user) return s;
+      const next = Math.round(Number(virtualCredits) || 0);
+      if (s.user.virtualCredits === next) return s;
+      return { user: { ...s.user, virtualCredits: next } };
+    }),
 }));

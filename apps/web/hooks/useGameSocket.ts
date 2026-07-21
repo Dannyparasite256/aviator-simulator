@@ -28,7 +28,12 @@ export function useGameSocket() {
         .then((bets) => useGameStore.getState().setBets(bets))
         .catch(() => undefined);
       void api<typeof u>('/users/me')
-        .then((me) => setUser(me))
+        .then((me) => {
+          setUser({
+            ...me,
+            virtualCredits: Math.round(Number(me.virtualCredits) || 0),
+          });
+        })
         .catch(() => undefined);
     };
 
@@ -147,9 +152,8 @@ export function useGameSocket() {
       if (r.slot) useGameStore.getState().setBet(r.slot, r);
       useGameStore.getState().setLastError(null);
       playSfx('bet');
-      const u = userRef.current;
-      if (u && r.virtualCredits != null) {
-        setUser({ ...u, virtualCredits: r.virtualCredits });
+      if (r.virtualCredits != null) {
+        useAuthStore.getState().setCredits(r.virtualCredits);
       }
     });
 
@@ -170,9 +174,8 @@ export function useGameSocket() {
           queued: false,
         });
         playSfx('cashout');
-        const u = userRef.current;
-        if (u && r.virtualCredits != null) {
-          setUser({ ...u, virtualCredits: r.virtualCredits });
+        if (r.virtualCredits != null) {
+          useAuthStore.getState().setCredits(r.virtualCredits);
         }
         if (r.cashedOut && r.cashOutMultiplier != null) {
           useUiStore.getState().recordCashOut(Number(r.cashOutMultiplier));
@@ -181,7 +184,7 @@ export function useGameSocket() {
             title: `You cashed out @ ${Number(r.cashOutMultiplier).toFixed(2)}x`,
             body:
               r.profit != null
-                ? `${r.profit >= 0 ? '+' : ''}${Number(r.profit).toFixed(2)} vc`
+                ? `${r.profit >= 0 ? '+' : '−'}${Math.abs(Number(r.profit)).toLocaleString()} UGX`
                 : undefined,
           });
         }

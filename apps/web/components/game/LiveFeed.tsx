@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { LiveBetFeedItem, PracticeBetState } from '@aviator/shared';
 import { useGameStore } from '@/lib/game-store';
 import { useAuthStore } from '@/lib/auth-store';
+import { formatMoney } from '@/lib/currency';
 
 type Tab = 'all' | 'my' | 'top';
 
@@ -16,11 +17,13 @@ function isMine(a: LiveBetFeedItem, user: { id: string; displayName: string }) {
   return false;
 }
 
-/** Build feed rows from local practice bet slots so My Bets always shows your activity. */
+/**
+ * Build stable rows from local practice slots.
+ * Do NOT include live multiplier or Date.now() — those cause re-mount / shake.
+ */
 function rowsFromLocalBets(
   bets: Record<1 | 2, PracticeBetState | null>,
   user: { id: string; displayName: string },
-  multiplier: number,
   phase: string,
 ): LiveBetFeedItem[] {
   const out: LiveBetFeedItem[] = [];
@@ -28,63 +31,48 @@ function rowsFromLocalBets(
     const b = bets[slot];
     if (!b) continue;
     const amount = b.remainingAmount > 0 ? b.remainingAmount : b.amount;
+    const base = {
+      kind: 'user' as const,
+      userId: user.id,
+      displayName: user.displayName,
+      avatarHue: 200,
+      slot,
+      at: 0, // stable — never Date.now()
+    };
+
     if (b.cashedOut || b.status === 'CASHED_OUT') {
       out.push({
+        ...base,
         id: b.betId || `local-cash-${slot}`,
-        kind: 'user',
-        userId: user.id,
-        displayName: user.displayName,
-        avatarHue: 200,
-        slot,
         amount: b.amount,
         type: 'CASH_OUT',
         multiplier: b.cashOutMultiplier ?? null,
         profit: b.profit ?? null,
-        at: Date.now(),
       });
     } else if (b.status === 'QUEUED' || b.queued) {
       out.push({
+        ...base,
         id: b.betId || `local-queue-${slot}`,
-        kind: 'user',
-        userId: user.id,
-        displayName: user.displayName,
-        avatarHue: 200,
-        slot,
         amount: b.amount,
         type: 'BET',
         multiplier: null,
-        at: Date.now(),
       });
     } else if (b.status === 'ACTIVE') {
+      const busted = phase === 'CRASHED' && !b.cashedOut;
       out.push({
+        ...base,
         id: b.betId || `local-active-${slot}`,
-        kind: 'user',
-        userId: user.id,
-        displayName: user.displayName,
-        avatarHue: 200,
-        slot,
         amount,
-        type: phase === 'CRASHED' && !b.cashedOut ? 'BUST' : 'BET',
-        multiplier:
-          phase === 'FLYING' && !b.cashedOut
-            ? multiplier
-            : phase === 'CRASHED'
-              ? multiplier
-              : null,
-        at: Date.now(),
+        type: busted ? 'BUST' : 'BET',
+        multiplier: null, // live mult applied at render time only
       });
     } else if (b.status === 'BUSTED') {
       out.push({
+        ...base,
         id: b.betId || `local-bust-${slot}`,
-        kind: 'user',
-        userId: user.id,
-        displayName: user.displayName,
-        avatarHue: 200,
-        slot,
         amount: b.amount,
         type: 'BUST',
-        multiplier: b.cashOutMultiplier ?? null,
-        at: Date.now(),
+        multiplier: null,
       });
     }
   }
@@ -99,19 +87,18 @@ export function LiveFeed({ compact = false }: { compact?: boolean }) {
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<Tab>('all');
 
+  // Rows rebuild only when bet identities / feed change — NOT every multiplier tick
   const rows = useMemo(() => {
     if (tab === 'my') {
       if (!user) return [];
       const fromFeed = feed.filter((a) => isMine(a, user));
-      const fromLocal = rowsFromLocalBets(bets, user, multiplier, phase);
-      // Prefer local status for active slots; keep historical feed items not covered by local
+      const fromLocal = rowsFromLocalBets(bets, user, phase);
       const localIds = new Set(fromLocal.map((r) => r.id));
       const localSlots = new Set(
         fromLocal.map((r) => r.slot).filter((s): s is 1 | 2 => s === 1 || s === 2),
       );
       const extra = fromFeed.filter((a) => {
         if (localIds.has(a.id)) return false;
-        // Drop stale feed BET for a slot we already show from local store
         if (a.slot && localSlots.has(a.slot) && a.type === 'BET') return false;
         return true;
       });
@@ -127,14 +114,14 @@ export function LiveFeed({ compact = false }: { compact?: boolean }) {
         })
         .slice(0, 30);
     }
-    // All: prepend your current local bets so you always see yourself at the top
     if (user) {
-      const local = rowsFromLocalBets(bets, user, multiplier, phase);
+      const local = rowsFromLocalBets(bets, user, phase);
       const ids = new Set(local.map((r) => r.id));
       return [...local, ...feed.filter((a) => !ids.has(a.id))].slice(0, 60);
     }
     return feed;
-  }, [feed, tab, user, bets, multiplier, phase]);
+    // intentionally omit `multiplier` — live win is computed in render
+  }, [feed, tab, user, bets, phase]);
 
   return (
     <div
@@ -184,27 +171,28 @@ export function LiveFeed({ compact = false }: { compact?: boolean }) {
                 : 'Bets will appear here in real time'}
           </li>
         )}
-        {rows.map((a, i) => {
-          const isLiveActive =
+        {rows.map((a) => {
+          const isMyLocal =
+            !!user &&
+            a.userId === user.id &&
             a.type === 'BET' &&
-            a.multiplier != null &&
-            a.userId &&
-            user?.id === a.userId &&
-            phase === 'FLYING';
-          const winAmt =
-            (a.type === 'CASH_OUT' || a.type === 'PARTIAL') && a.multiplier
-              ? a.amount * a.multiplier
-              : isLiveActive && a.multiplier
-                ? a.amount * a.multiplier
-                : null;
+            a.slot != null &&
+            bets[a.slot as 1 | 2]?.status === 'ACTIVE' &&
+            !bets[a.slot as 1 | 2]?.cashedOut;
+          const isLiveActive = isMyLocal && phase === 'FLYING';
+          const liveWin =
+            isLiveActive && a.amount > 0 ? a.amount * multiplier : null;
           const isCash = a.type === 'CASH_OUT' || a.type === 'PARTIAL';
           const slotLabel = a.slot != null ? ` ·${a.slot}` : '';
+          // Stable key — never include index or Date.now()
+          const rowKey = `${a.id}-${a.type}-${a.slot ?? 0}`;
+
           return (
             <li
-              key={`${a.id}-${a.at}-${i}`}
-              className={`row-in grid grid-cols-3 items-center gap-1 border-b border-white/[0.03] px-3 py-2 text-xs ${
-                isCash ? 'feed-cash-row' : ''
-              } ${a.userId && user?.id === a.userId ? 'bg-white/[0.03]' : ''}`}
+              key={rowKey}
+              className={`grid grid-cols-3 items-center gap-1 border-b border-white/[0.03] px-3 py-2 text-xs ${
+                a.userId && user?.id === a.userId ? 'bg-white/[0.03]' : ''
+              }`}
             >
               <div className="flex min-w-0 items-center gap-1.5">
                 <span
@@ -224,9 +212,11 @@ export function LiveFeed({ compact = false }: { compact?: boolean }) {
                   )}
                 </span>
               </div>
-              <div className="text-right font-mono text-white/70">{a.amount}</div>
+              <div className="text-right font-mono text-white/70">
+                {formatMoney(a.amount, { compact: true })}
+              </div>
               <div
-                className={`text-right font-mono font-semibold ${
+                className={`text-right font-mono font-semibold tabular-nums ${
                   isCash || isLiveActive
                     ? 'text-av-green'
                     : a.type === 'BUST'
@@ -236,20 +226,18 @@ export function LiveFeed({ compact = false }: { compact?: boolean }) {
               >
                 {isCash && a.multiplier != null ? (
                   <span>
-                    {(a.profit != null
-                      ? a.profit >= 0
-                        ? `+${Number(a.profit).toFixed(2)}`
-                        : Number(a.profit).toFixed(2)
-                      : (a.amount * a.multiplier).toFixed(2))}
+                    {a.profit != null
+                      ? formatMoney(a.profit, { signed: true, compact: true })
+                      : formatMoney(a.amount * a.multiplier, { compact: true })}
                     <span className="ml-0.5 text-[10px] text-av-muted">
                       @{a.multiplier.toFixed(2)}
                     </span>
                   </span>
-                ) : isLiveActive && a.multiplier != null ? (
+                ) : isLiveActive && liveWin != null ? (
                   <span>
-                    {winAmt!.toFixed(2)}
+                    {formatMoney(liveWin, { compact: true })}
                     <span className="ml-0.5 text-[10px] text-av-muted">
-                      @{a.multiplier.toFixed(2)}
+                      @{multiplier.toFixed(2)}
                     </span>
                   </span>
                 ) : a.type === 'BUST' ? (

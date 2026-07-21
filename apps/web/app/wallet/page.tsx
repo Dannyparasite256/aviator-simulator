@@ -35,7 +35,7 @@ export default function WalletPage() {
   const [requests, setRequests] = useState<WalletRequest[]>([]);
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [type, setType] = useState<'DEPOSIT' | 'WITHDRAW'>('DEPOSIT');
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('UGX');
   const [amount, setAmount] = useState('10');
   const [note, setNote] = useState('');
   const [promo, setPromo] = useState('WELCOME500');
