@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ColorTheme,
   FlightVisual,
@@ -22,6 +23,7 @@ const THEMES: { id: ColorTheme; label: string }[] = [
 
 export function PreferencesMenu() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const flightVisual = useUiStore((s) => s.flightVisual);
@@ -36,6 +38,10 @@ export function PreferencesMenu() {
   const setCoachStep = useUiStore((s) => s.setCoachStep);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
       const t = e.target as Node;
@@ -47,7 +53,6 @@ export function PreferencesMenu() {
     }
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
-    // Prevent background scroll while sheet is open (mobile)
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
@@ -57,16 +62,14 @@ export function PreferencesMenu() {
     };
   }, [open]);
 
-  const panel = (
+  const panelBody = (
     <>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-av-muted">
-          Settings
-        </div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="text-sm font-extrabold tracking-tight text-white">Settings</div>
         <button
           type="button"
           aria-label="Close settings"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 hover:bg-white/10 hover:text-white sm:hidden"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-av-border bg-black/30 text-white/70 hover:bg-white/10 hover:text-white"
           onClick={() => setOpen(false)}
         >
           ✕
@@ -149,6 +152,45 @@ export function PreferencesMenu() {
     </>
   );
 
+  // Portal out of <header> so backdrop-filter / z-index no longer trap the sheet under the bar
+  const mobileModal =
+    mounted && open
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center sm:hidden"
+            role="presentation"
+            style={{
+              paddingTop: 'max(1rem, env(safe-area-inset-top, 0px))',
+              paddingBottom: 'max(1rem, env(safe-area-inset-bottom, 0px))',
+              paddingLeft: 'max(1rem, env(safe-area-inset-left, 0px))',
+              paddingRight: 'max(1rem, env(safe-area-inset-right, 0px))',
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Close settings backdrop"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              onClick={() => setOpen(false)}
+            />
+            <div
+              ref={panelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Display preferences"
+              className="prefs-sheet-in relative z-10 w-full max-w-[20rem] overflow-y-auto rounded-2xl border border-av-border bg-av-panel p-4 shadow-glass"
+              style={{
+                // Keep the whole card in the safe viewport below notch / status bar
+                maxHeight: 'min(85dvh, calc(100dvh - 2rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)))',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {panelBody}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -166,35 +208,17 @@ export function PreferencesMenu() {
         ⚙
       </button>
 
-      {open && (
-        <>
-          {/* Mobile: centered modal over the whole screen */}
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm sm:hidden"
-            role="presentation"
-            onClick={() => setOpen(false)}
-          >
-            <div
-              ref={panelRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Display preferences"
-              className="prefs-sheet-in w-full max-w-[min(100%,20rem)] rounded-2xl border border-av-border bg-av-panel p-4 shadow-glass"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {panel}
-            </div>
-          </div>
+      {mobileModal}
 
-          {/* Desktop / tablet: anchored dropdown near the gear */}
-          <div
-            className="absolute right-0 top-11 z-[60] hidden w-64 rounded-xl border border-av-border bg-av-panel p-3 shadow-glass sm:block"
-            role="dialog"
-            aria-label="Display preferences"
-          >
-            {panel}
-          </div>
-        </>
+      {/* Desktop / tablet: anchored dropdown near the gear */}
+      {open && (
+        <div
+          className="absolute right-0 top-11 z-[60] hidden w-64 rounded-xl border border-av-border bg-av-panel p-3 shadow-glass sm:block"
+          role="dialog"
+          aria-label="Display preferences"
+        >
+          {panelBody}
+        </div>
       )}
     </div>
   );
