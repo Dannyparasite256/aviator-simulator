@@ -104,9 +104,11 @@ export function TopBar() {
     ...(showUser?.role === 'ADMIN' ? [{ href: '/admin', label: 'Admin' }] : []),
   ];
 
+  const isPlay = pathname === '/';
+
   return (
-    <header className="sticky top-0 z-50 border-b border-av-border/80 bg-av-bg/95 backdrop-blur-md">
-      <div className="mx-auto flex h-12 max-w-[1400px] items-center justify-between gap-2 px-3 sm:h-14 sm:px-4">
+    <header className="z-50 shrink-0 border-b border-av-border/80 bg-av-bg/95 backdrop-blur-md">
+      <div className="mx-auto flex h-11 max-w-[1400px] items-center justify-between gap-2 px-2 sm:h-12 sm:px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="relative flex h-8 w-8 items-center justify-center">
             <span className="absolute inset-0 rounded-full bg-av-red/20 logo-pulse" />
@@ -231,22 +233,25 @@ export function TopBar() {
         </div>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-t border-av-border/50 px-2 py-1.5 md:hidden">
-        {nav.map((l) => {
-          const active = pathname === l.href || (l.href !== '/' && pathname.startsWith(l.href));
-          return (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold active:scale-95 ${
-                active ? 'bg-av-red text-white' : 'bg-av-panel text-av-muted'
-              }`}
-            >
-              {l.label}
-            </Link>
-          );
-        })}
-      </div>
+      {/* Hide secondary nav on play page so stage + bets fit without scrolling */}
+      {!isPlay && (
+        <div className="flex gap-1 overflow-x-auto border-t border-av-border/50 px-2 py-1 md:hidden">
+          {nav.map((l) => {
+            const active = pathname === l.href || (l.href !== '/' && pathname.startsWith(l.href));
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold active:scale-95 ${
+                  active ? 'bg-av-red text-white' : 'bg-av-panel text-av-muted'
+                }`}
+              >
+                {l.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </header>
   );
 }

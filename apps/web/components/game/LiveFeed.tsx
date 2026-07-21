@@ -6,7 +6,7 @@ import { useAuthStore } from '@/lib/auth-store';
 
 type Tab = 'all' | 'my' | 'top';
 
-export function LiveFeed() {
+export function LiveFeed({ compact = false }: { compact?: boolean }) {
   const feed = useGameStore((s) => s.liveFeed);
   const user = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<Tab>('all');
@@ -34,8 +34,12 @@ export function LiveFeed() {
   }, [feed, tab, user]);
 
   return (
-    <div className="flex h-full min-h-[200px] flex-col overflow-hidden rounded-xl border border-av-border bg-av-panel">
-      <div className="flex items-center justify-between border-b border-av-border px-2 py-2">
+    <div
+      className={`flex h-full flex-col overflow-hidden rounded-xl border border-av-border bg-av-panel ${
+        compact ? 'min-h-0' : 'min-h-[200px]'
+      }`}
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-av-border px-2 py-1.5">
         <div className="grid w-full grid-cols-3 gap-0.5 rounded-lg bg-black/40 p-0.5">
           {(
             [

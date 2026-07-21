@@ -11,7 +11,7 @@ function chipClass(m: number | null) {
   return 'chip chip-high';
 }
 
-export function HistoryBar() {
+export function HistoryBar({ compact = false }: { compact?: boolean }) {
   const history = useGameStore((s) => s.history);
 
   const heat = useMemo(() => {
@@ -26,9 +26,8 @@ export function HistoryBar() {
   }, [history]);
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {/* Density heat strip */}
-      {heat.length > 0 && (
+    <div className={`flex flex-col ${compact ? 'gap-0.5' : 'gap-1.5'}`}>
+      {heat.length > 0 && !compact && (
         <div className="flex h-1 overflow-hidden rounded-full">
           {heat.map((t, i) => (
             <span
@@ -40,18 +39,18 @@ export function HistoryBar() {
           ))}
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto py-0.5">
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-0.5 sm:gap-1.5">
           {history.length === 0 && (
-            <span className="px-1 text-xs text-av-muted">Waiting for first round…</span>
+            <span className="px-1 text-[11px] text-av-muted sm:text-xs">Waiting for first round…</span>
           )}
-          {history.slice(0, 32).map((h, idx) => (
+          {history.slice(0, compact ? 20 : 32).map((h, idx) => (
             <Link
               key={h.id}
               href={`/history/${h.id}`}
               className={`${chipClass(h.crashPoint)} chip-enter transition hover:brightness-110 active:scale-95 ${
-                idx === 0 ? 'ring-1 ring-white/20' : ''
-              }`}
+                compact ? '!px-1.5 !py-0.5 !text-[11px]' : ''
+              } ${idx === 0 ? 'ring-1 ring-white/20' : ''}`}
               title={`Round #${h.roundNumber}${h.crashPoint != null ? ` · ${Number(h.crashPoint).toFixed(2)}x` : ''}`}
               style={{ animationDelay: `${Math.min(idx, 8) * 20}ms` }}
             >
@@ -61,9 +60,11 @@ export function HistoryBar() {
         </div>
         <Link
           href="/history"
-          className="shrink-0 rounded-full border border-av-border bg-av-panel px-2.5 py-1 text-[11px] font-semibold text-av-muted hover:text-white"
+          className={`shrink-0 rounded-full border border-av-border bg-av-panel font-semibold text-av-muted hover:text-white ${
+            compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px]'
+          }`}
         >
-          History
+          All
         </Link>
       </div>
     </div>

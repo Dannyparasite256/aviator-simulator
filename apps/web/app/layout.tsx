@@ -36,11 +36,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body className="min-h-dvh bg-av-bg font-sans text-white antialiased">
+      <body className="h-dvh overflow-hidden bg-av-bg font-sans text-white antialiased">
         <Providers>
-          <div className="flex min-h-dvh flex-col">
+          <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
             <TopBar />
-            <main className="mx-auto w-full max-w-[1400px] flex-1 px-2 pb-[calc(12px+var(--safe-bottom))] pt-2 sm:px-3 md:px-4">
+            <main className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-1.5 pb-[calc(4px+var(--safe-bottom))] pt-1 sm:px-3 sm:pb-[calc(8px+var(--safe-bottom))] sm:pt-1.5 md:px-4">
               {children}
             </main>
           </div>

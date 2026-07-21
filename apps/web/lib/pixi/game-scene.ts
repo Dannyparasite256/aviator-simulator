@@ -17,9 +17,7 @@ export interface SceneState {
   flightVisual?: FlightVisual;
   colorTheme?: ColorTheme;
   reducedMotion?: boolean;
-  /** Auto cash-out markers (multipliers) */
   autoMarkers?: number[];
-  /** Ghost marker for last personal cash-out */
   ghostCashOutAt?: number | null;
 }
 
@@ -80,8 +78,21 @@ function riskColor(m: number, pal: ThemePalette): number {
   return pal.accentHot;
 }
 
+/** Frame-rate independent exponential ease toward target (higher k = snappier). */
+function damp(current: number, target: number, k: number, dtMs: number): number {
+  const t = 1 - Math.exp(-k * (dtMs / 1000));
+  return current + (target - current) * t;
+}
+
+function dampAngle(current: number, target: number, k: number, dtMs: number): number {
+  let diff = target - current;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return current + diff * (1 - Math.exp(-k * (dtMs / 1000)));
+}
+
 /**
- * Aviator-style flight stage: dark sky, trail curve, orb/plane/rocket hero.
+ * Aviator-style flight stage with smoothed hero motion.
  */
 export class GameScene {
   private app: Application | null = null;
@@ -120,14 +131,27 @@ export class GameScene {
   private flyElapsed = 0;
   private crashAnim = 0;
   private shake = 0;
+  private shakeX = 0;
+  private shakeY = 0;
   private mounted = false;
   private bob = 0;
   private ambientT = 0;
   private milestonesHit = new Set<number>();
   private returnProgress = 1;
-  private lastAx = 0;
-  private lastAy = 0;
   private returnFrom = { x: 0, y: 0 };
+
+  // Smoothed display state (prevents jittery plane/orb)
+  private smoothMult = 1;
+  private displayX = 0;
+  private displayY = 0;
+  private displayRot = 0;
+  private displayScale = 1;
+  private displayAlpha = 1;
+  private prevDisplayX = 0;
+  private prevDisplayY = 0;
+  private posInitialized = false;
+  private particleAccum = 0;
+  private afterimageAccum = 0;
 
   async mount(host: HTMLElement, targetFps = 144) {
     if (this.mounted) return;
@@ -172,7 +196,7 @@ export class GameScene {
   }
 
   private onResize = () => {
-    /* resizeTo handles canvas; redraw next frame */
+    this.posInitialized = false;
   };
 
   unmount() {
@@ -184,6 +208,7 @@ export class GameScene {
     this.mounted = false;
     this.particles = [];
     this.afterimages = [];
+    this.posInitialized = false;
   }
 
   setState(partial: Partial<SceneState>) {
@@ -205,8 +230,10 @@ export class GameScene {
       this.shake = 0;
       this.milestonesHit = new Set();
       this.returnProgress = 1;
-      this.hero.alpha = 1;
-      this.hero.rotation = 0;
+      this.smoothMult = Math.max(1, this.state.multiplier);
+      this.displayAlpha = 1;
+      this.displayRot = -0.35;
+      this.displayScale = 1.1;
     }
     if (this.state.phase === 'CRASHED' && prev !== 'CRASHED') {
       this.crashAnim = 1;
@@ -221,17 +248,27 @@ export class GameScene {
       (this.state.phase === 'WAITING' || this.state.phase === 'COUNTDOWN') &&
       (prev === 'CRASHED' || prev === 'FLYING')
     ) {
-      this.returnFrom = { x: this.lastAx, y: this.lastAy };
+      this.returnFrom = { x: this.displayX, y: this.displayY };
       this.returnProgress = 0;
       this.points = [];
       this.flyElapsed = 0;
-      this.hero.alpha = 1;
-      this.hero.rotation = 0;
+      this.smoothMult = 1;
+      this.displayAlpha = 1;
     }
   }
 
   private pal(): ThemePalette {
     return THEMES[this.state.colorTheme ?? 'classic'];
+  }
+
+  private flightPos(w: number, h: number, mult: number, flyElapsed: number) {
+    const progress = Math.min(1, flyElapsed / 14000);
+    const logM = Math.log(Math.max(1, mult)) / Math.log(50);
+    const x = 24 + progress * (w - 60) * Math.min(1, 0.4 + logM * 0.85);
+    const y =
+      h * 0.78 -
+      Math.min(h * 0.55, (mult - 1) * (h * 0.07) + progress * h * 0.28);
+    return { x, y };
   }
 
   private drawHero() {
@@ -241,33 +278,39 @@ export class GameScene {
     const pal = this.pal();
 
     if (visual === 'plane') {
-      g.roundRect(-16, -5, 34, 10, 4);
+      // Slightly larger, cleaner silhouette for mobile readability
+      g.roundRect(-18, -6, 38, 12, 5);
       g.fill({ color: pal.accentHot });
       g.moveTo(-2, 0);
-      g.lineTo(10, 12);
-      g.lineTo(16, 12);
-      g.lineTo(6, 0);
+      g.lineTo(12, 14);
+      g.lineTo(18, 14);
+      g.lineTo(8, 0);
       g.fill({ color: pal.accent });
-      g.moveTo(-14, -4);
-      g.lineTo(-20, -12);
-      g.lineTo(-10, -4);
+      g.moveTo(-2, 0);
+      g.lineTo(12, -14);
+      g.lineTo(18, -14);
+      g.lineTo(8, 0);
+      g.fill({ color: pal.accent, alpha: 0.85 });
+      g.moveTo(-16, -5);
+      g.lineTo(-22, -14);
+      g.lineTo(-10, -5);
       g.fill({ color: 0xffffff });
-      g.moveTo(18, -4);
-      g.lineTo(28, 0);
-      g.lineTo(18, 4);
+      g.moveTo(20, -5);
+      g.lineTo(32, 0);
+      g.lineTo(20, 5);
       g.fill({ color: 0xffffff });
-      g.circle(8, -1, 2.5);
+      g.circle(10, -1, 3);
       g.fill({ color: pal.ice });
+      // soft engine glow
+      g.circle(-18, 0, 4);
+      g.fill({ color: pal.gold, alpha: 0.55 });
     } else if (visual === 'rocket') {
-      // Body
       g.roundRect(-8, -18, 16, 30, 6);
       g.fill({ color: 0xf8fafc });
-      // Nose
       g.moveTo(-8, -18);
       g.lineTo(0, -30);
       g.lineTo(8, -18);
       g.fill({ color: pal.accentHot });
-      // Fins
       g.moveTo(-8, 8);
       g.lineTo(-16, 16);
       g.lineTo(-8, 12);
@@ -276,16 +319,13 @@ export class GameScene {
       g.lineTo(16, 16);
       g.lineTo(8, 12);
       g.fill({ color: pal.accent });
-      // Window
       g.circle(0, -8, 4);
       g.fill({ color: pal.ice });
-      // Flame base
       g.moveTo(-4, 12);
       g.lineTo(0, 22);
       g.lineTo(4, 12);
       g.fill({ color: pal.gold });
     } else {
-      // Orb / energy ball — core + rings
       g.circle(0, 0, 14);
       g.fill({ color: pal.accent, alpha: 0.25 });
       g.circle(0, 0, 9);
@@ -299,23 +339,28 @@ export class GameScene {
 
   private update(deltaMs: number) {
     if (!this.app) return;
+    // Clamp delta to avoid huge jumps after tab blur
+    const dt = Math.min(40, Math.max(0, deltaMs));
     const w = this.app.screen.width;
     const h = this.app.screen.height;
     const { phase, multiplier, countdownRemainingMs, reducedMotion } = this.state;
     const pal = this.pal();
-    this.bob += deltaMs * 0.004;
-    this.ambientT += deltaMs;
+    this.bob += dt * 0.0035;
+    this.ambientT += dt;
+
+    // Smooth multiplier for path (removes stair-step jitter from server ticks)
+    const multK = reducedMotion ? 18 : 10;
+    this.smoothMult = damp(this.smoothMult, Math.max(1, multiplier), multK, dt);
 
     // Soft gradient sky
     this.sky.clear();
     this.sky.rect(0, 0, w, h);
     this.sky.fill({ color: pal.bg });
-    // Upper wash
     this.sky.ellipse(w * 0.5, h * 0.85, w * 0.7, h * 0.45);
     this.sky.fill({ color: pal.accent, alpha: phase === 'CRASHED' ? 0.12 : 0.06 });
     if (phase === 'FLYING') {
       this.sky.ellipse(w * 0.55, h * 0.35, w * 0.35, h * 0.25);
-      this.sky.fill({ color: riskColor(multiplier, pal), alpha: 0.05 });
+      this.sky.fill({ color: riskColor(this.smoothMult, pal), alpha: 0.05 });
     }
 
     // Subtle grid / stars
@@ -327,10 +372,9 @@ export class GameScene {
       this.grid.lineTo(w, y);
     }
     this.grid.stroke();
-    // Parallax star dots
     if (!reducedMotion) {
-      const drift = (this.ambientT * 0.02) % 40;
-      for (let i = 0; i < 18; i++) {
+      const drift = (this.ambientT * 0.015) % 40;
+      for (let i = 0; i < 14; i++) {
         const sx = ((i * 97 + drift * (i % 3 === 0 ? 1 : -0.5)) % (w + 20)) - 10;
         const sy = ((i * 53) % (h * 0.7)) + 10;
         this.grid.circle(sx, sy, 0.8 + (i % 3) * 0.4);
@@ -338,31 +382,39 @@ export class GameScene {
       }
     }
 
-    // Home / rest position
-    let homeX = w * 0.16;
-    let homeY = h * 0.7 + Math.sin(this.bob) * (reducedMotion ? 0 : 5);
-    let ax = homeX;
-    let ay = homeY;
+    const homeX = w * 0.16;
+    const homeY = h * 0.72 + Math.sin(this.bob) * (reducedMotion ? 0 : 4);
+
+    let targetX = homeX;
+    let targetY = homeY;
+    let targetRot = Math.sin(this.bob) * 0.05;
+    let targetScale = 1;
+    let targetAlpha = 1;
+    let posK = 12;
+    let rotK = 8;
+    let scaleK = 10;
 
     this.fill.clear();
     this.line.clear();
     this.markers.clear();
     this.countdownRing.clear();
 
-    // Smooth return after crash
     if (this.returnProgress < 1 && (phase === 'WAITING' || phase === 'COUNTDOWN')) {
-      this.returnProgress = Math.min(1, this.returnProgress + deltaMs / 550);
+      this.returnProgress = Math.min(1, this.returnProgress + dt / 650);
       const e = 1 - Math.pow(1 - this.returnProgress, 3);
-      ax = this.returnFrom.x + (homeX - this.returnFrom.x) * e;
-      ay = this.returnFrom.y + (homeY - this.returnFrom.y) * e;
+      targetX = this.returnFrom.x + (homeX - this.returnFrom.x) * e;
+      targetY = this.returnFrom.y + (homeY - this.returnFrom.y) * e;
+      posK = 14;
+      targetRot = 0;
+      targetScale = 1;
     }
 
     if (phase === 'COUNTDOWN' && countdownRemainingMs > 0) {
-      const total = 5000; // approximate; ring uses remaining
+      const total = 5000;
       const frac = Math.min(1, Math.max(0, countdownRemainingMs / total));
       const cx = w * 0.5;
       const cy = h * 0.42;
-      const r = Math.min(w, h) * 0.12;
+      const r = Math.min(w, h) * 0.1;
       this.countdownRing.circle(cx, cy, r);
       this.countdownRing.stroke({ width: 3, color: 0xffffff, alpha: 0.08 });
       const start = -Math.PI / 2;
@@ -370,24 +422,33 @@ export class GameScene {
       this.countdownRing.moveTo(cx + Math.cos(start) * r, cy + Math.sin(start) * r);
       this.countdownRing.arc(cx, cy, r, start, end, false);
       this.countdownRing.stroke({ width: 4, color: pal.accent, alpha: 0.9 });
+      targetScale = 1 + Math.sin(this.bob * 2.2) * 0.05;
     }
 
     if (phase === 'FLYING' || phase === 'CRASHED') {
-      this.flyElapsed += deltaMs;
-      const progress = Math.min(1, this.flyElapsed / 14000);
-      const logM = Math.log(Math.max(1, multiplier)) / Math.log(50);
-      const px = 24 + progress * (w - 60) * Math.min(1, 0.4 + logM * 0.85);
-      const py =
-        h * 0.78 -
-        Math.min(h * 0.55, (multiplier - 1) * (h * 0.07) + progress * h * 0.28);
-      this.points.push({ x: px, y: py });
-      if (this.points.length > 500) this.points.shift();
-      ax = px;
-      ay = py;
+      this.flyElapsed += dt;
+      const pos = this.flightPos(w, h, this.smoothMult, this.flyElapsed);
+      targetX = pos.x;
+      targetY = pos.y;
+      // Very smooth follow while flying
+      posK = reducedMotion ? 20 : 11;
+      rotK = 9;
+      scaleK = 8;
+
+      // Build path from smoothed positions only (stable curve)
+      const last = this.points[this.points.length - 1];
+      if (
+        !last ||
+        Math.hypot(pos.x - last.x, pos.y - last.y) > 1.8 ||
+        this.points.length < 2
+      ) {
+        this.points.push({ x: pos.x, y: pos.y });
+        if (this.points.length > 420) this.points.shift();
+      }
 
       if (this.points.length > 1) {
         const crashed = phase === 'CRASHED';
-        const col = crashed ? pal.accentHot : riskColor(multiplier, pal);
+        const col = crashed ? pal.accentHot : riskColor(this.smoothMult, pal);
 
         this.fill.moveTo(this.points[0].x, h);
         for (const p of this.points) this.fill.lineTo(p.x, p.y);
@@ -395,6 +456,7 @@ export class GameScene {
         this.fill.closePath();
         this.fill.fill({ color: col, alpha: crashed ? 0.2 : 0.14 });
 
+        // Smooth-looking stroke via dense points
         this.line.setStrokeStyle({ width: 3.5, color: col, alpha: 1 });
         this.line.moveTo(this.points[0].x, this.points[0].y);
         for (let i = 1; i < this.points.length; i++) {
@@ -402,7 +464,6 @@ export class GameScene {
         }
         this.line.stroke();
 
-        // Soft outer glow trail
         this.line.setStrokeStyle({ width: 10, color: col, alpha: 0.12 });
         this.line.moveTo(this.points[0].x, this.points[0].y);
         for (let i = 1; i < this.points.length; i++) {
@@ -411,35 +472,26 @@ export class GameScene {
         this.line.stroke();
       }
 
-      // Auto cash-out horizontal markers
+      // Auto cash-out markers
       const autos = this.state.autoMarkers ?? [];
       for (const am of autos) {
         if (am <= 1) continue;
-        const my =
-          h * 0.78 -
-          Math.min(h * 0.55, (am - 1) * (h * 0.07) + Math.min(1, this.flyElapsed / 14000) * h * 0.28);
+        const my = this.flightPos(w, h, am, this.flyElapsed).y;
         this.markers.setStrokeStyle({
           width: 1,
           color: 0x28a909,
-          alpha: multiplier >= am ? 0.15 : 0.45,
+          alpha: this.smoothMult >= am ? 0.15 : 0.45,
         });
         this.markers.moveTo(20, my);
         this.markers.lineTo(w - 20, my);
         this.markers.stroke();
-        // small dash label marker
         this.markers.circle(28, my, 3);
         this.markers.fill({ color: 0x28a909, alpha: 0.8 });
       }
 
-      // Ghost last cash-out
       const ghost = this.state.ghostCashOutAt;
       if (ghost != null && ghost > 1) {
-        const gy =
-          h * 0.78 -
-          Math.min(
-            h * 0.55,
-            (ghost - 1) * (h * 0.07) + Math.min(1, this.flyElapsed / 14000) * h * 0.28,
-          );
+        const gy = this.flightPos(w, h, ghost, this.flyElapsed).y;
         this.markers.setStrokeStyle({ width: 1.5, color: pal.gold, alpha: 0.35 });
         this.markers.moveTo(20, gy);
         this.markers.lineTo(w - 20, gy);
@@ -450,107 +502,150 @@ export class GameScene {
         this.markers.fill({ color: pal.gold, alpha: 0.7 });
       }
 
-      // Milestone fireworks
       if (phase === 'FLYING' && !reducedMotion) {
         for (const ms of [2, 5, 10, 50]) {
           if (multiplier >= ms && !this.milestonesHit.has(ms)) {
             this.milestonesHit.add(ms);
-            this.burst(ms >= 10 ? 28 : 16, riskColor(ms, pal));
+            this.burst(ms >= 10 ? 24 : 14, riskColor(ms, pal));
           }
         }
       }
 
-      if (phase === 'FLYING' && !reducedMotion && Math.random() < 0.55) {
-        this.spawnParticle(
-          ax - 10,
-          ay,
-          -2 - Math.random() * 2,
-          (Math.random() - 0.5) * 1.6,
-          riskColor(multiplier, pal),
-          280 + Math.random() * 200,
-        );
+      const visual = this.state.flightVisual ?? 'orb';
+      if (phase === 'FLYING') {
+        if (visual === 'orb') {
+          targetScale = 1 + Math.min(0.75, Math.log(this.smoothMult) * 0.2);
+          targetRot = this.bob * 0.35;
+        } else if (visual === 'rocket') {
+          targetScale = 1.08;
+          // Point along velocity
+          const vx = this.displayX - this.prevDisplayX;
+          const vy = this.displayY - this.prevDisplayY;
+          if (Math.hypot(vx, vy) > 0.05) {
+            targetRot = Math.atan2(vy, vx) + Math.PI / 2;
+          } else {
+            targetRot = -0.2 - Math.min(0.15, (this.smoothMult - 1) * 0.015);
+          }
+        } else {
+          // Plane: nose follows flight path smoothly
+          targetScale = 1.12;
+          const vx = this.displayX - this.prevDisplayX;
+          const vy = this.displayY - this.prevDisplayY;
+          if (Math.hypot(vx, vy) > 0.08) {
+            targetRot = Math.atan2(vy, vx);
+          } else {
+            targetRot = -0.35 - Math.min(0.28, (this.smoothMult - 1) * 0.03);
+          }
+        }
       }
 
-      // Afterimages for orb
-      if (
-        phase === 'FLYING' &&
-        !reducedMotion &&
-        (this.state.flightVisual ?? 'orb') === 'orb' &&
-        Math.random() < 0.35
-      ) {
-        this.spawnAfterimage(ax, ay, riskColor(multiplier, pal));
+      // Time-based particle emission (no Math.random spam jitter)
+      if (phase === 'FLYING' && !reducedMotion) {
+        this.particleAccum += dt;
+        const interval = visual === 'plane' ? 28 : 36;
+        while (this.particleAccum >= interval) {
+          this.particleAccum -= interval;
+          const backX = Math.cos(this.displayRot) * -14;
+          const backY = Math.sin(this.displayRot) * -14;
+          this.spawnParticle(
+            this.displayX + backX,
+            this.displayY + backY,
+            -1.6 - Math.random() * 1.2,
+            (Math.random() - 0.5) * 1.1,
+            riskColor(this.smoothMult, pal),
+            260 + Math.random() * 180,
+          );
+        }
+        if (visual === 'orb') {
+          this.afterimageAccum += dt;
+          if (this.afterimageAccum >= 42) {
+            this.afterimageAccum = 0;
+            this.spawnAfterimage(this.displayX, this.displayY, riskColor(this.smoothMult, pal));
+          }
+        }
       }
     } else if (this.returnProgress >= 1) {
-      ax = homeX;
-      ay = homeY;
-      // Ambient idle particles
-      if (!reducedMotion && Math.random() < 0.08) {
-        this.spawnParticle(
-          Math.random() * w,
-          h + 4,
-          (Math.random() - 0.5) * 0.4,
-          -0.4 - Math.random() * 0.6,
-          pal.accent,
-          900 + Math.random() * 600,
-        );
-      }
-    }
-
-    // Crash animation
-    if (phase === 'CRASHED' && this.crashAnim > 0) {
-      this.crashAnim = Math.max(0, this.crashAnim - deltaMs / 700);
-      if (!reducedMotion) {
-        ax += (Math.random() - 0.5) * 12;
-        ay += this.crashAnim * 55;
-        this.hero.rotation = this.crashAnim * 1.5;
-      }
-      this.hero.alpha = 0.2 + this.crashAnim * 0.8;
-    } else if (phase === 'FLYING') {
+      targetX = homeX;
+      targetY = homeY;
+      posK = 10;
       const visual = this.state.flightVisual ?? 'orb';
-      if (visual === 'plane') {
-        this.hero.rotation = -0.4 - Math.min(0.35, (multiplier - 1) * 0.04);
-      } else if (visual === 'rocket') {
-        this.hero.rotation = -0.15 - Math.min(0.2, (multiplier - 1) * 0.02);
-      } else {
-        this.hero.rotation = this.bob * 0.4;
-      }
-      this.hero.alpha = 1;
-    } else {
-      this.hero.rotation =
-        (this.state.flightVisual ?? 'orb') === 'orb'
-          ? this.bob * 0.5
-          : Math.sin(this.bob) * 0.06;
-      this.hero.alpha = 1;
-    }
-
-    // Screen shake
-    if (this.shake > 0 && !reducedMotion) {
-      this.shake = Math.max(0, this.shake - deltaMs / 280);
-      this.shakeLayer.x = (Math.random() - 0.5) * 14 * this.shake;
-      this.shakeLayer.y = (Math.random() - 0.5) * 10 * this.shake;
-    } else {
-      this.shakeLayer.x = 0;
-      this.shakeLayer.y = 0;
-    }
-
-    this.lastAx = ax;
-    this.lastAy = ay;
-    this.hero.x = ax;
-    this.hero.y = ay;
-
-    // Scale by multiplier for orb
-    const visual = this.state.flightVisual ?? 'orb';
-    let scale = 1;
-    if (phase === 'FLYING') {
       if (visual === 'orb') {
-        scale = 1 + Math.min(0.85, Math.log(multiplier) * 0.22);
+        targetRot = this.bob * 0.45;
+      } else if (visual === 'plane') {
+        targetRot = Math.sin(this.bob) * 0.08;
       } else {
-        scale = 1.12;
+        targetRot = Math.sin(this.bob) * 0.05;
       }
-    } else if (phase === 'COUNTDOWN') {
-      scale = 1 + Math.sin(this.bob * 2) * 0.06;
+      if (!reducedMotion) {
+        this.particleAccum += dt;
+        if (this.particleAccum >= 180) {
+          this.particleAccum = 0;
+          this.spawnParticle(
+            Math.random() * w,
+            h + 4,
+            (Math.random() - 0.5) * 0.35,
+            -0.35 - Math.random() * 0.5,
+            pal.accent,
+            800 + Math.random() * 500,
+          );
+        }
+      }
     }
-    this.hero.scale.set(scale);
+
+    // Crash: smooth dive away (no per-frame random jump)
+    if (phase === 'CRASHED' && this.crashAnim > 0) {
+      this.crashAnim = Math.max(0, this.crashAnim - dt / 780);
+      const t = this.crashAnim;
+      targetX += Math.sin(this.ambientT * 0.04) * 6 * t;
+      targetY += (1 - t) * 70 + t * 20;
+      targetRot = t * 1.15 + 0.2;
+      targetAlpha = 0.18 + t * 0.82;
+      targetScale = 0.85 + t * 0.2;
+      posK = 7;
+      rotK = 6;
+    }
+
+    // Initialize display position once we know screen size
+    if (!this.posInitialized || !Number.isFinite(this.displayX)) {
+      this.displayX = targetX;
+      this.displayY = targetY;
+      this.prevDisplayX = targetX;
+      this.prevDisplayY = targetY;
+      this.displayRot = targetRot;
+      this.displayScale = targetScale;
+      this.displayAlpha = targetAlpha;
+      this.posInitialized = true;
+    }
+
+    this.prevDisplayX = this.displayX;
+    this.prevDisplayY = this.displayY;
+    this.displayX = damp(this.displayX, targetX, posK, dt);
+    this.displayY = damp(this.displayY, targetY, posK, dt);
+    this.displayRot = dampAngle(this.displayRot, targetRot, rotK, dt);
+    this.displayScale = damp(this.displayScale, targetScale, scaleK, dt);
+    this.displayAlpha = damp(this.displayAlpha, targetAlpha, 10, dt);
+
+    // Smooth screen shake (damped random walk, not hard random each frame)
+    if (this.shake > 0 && !reducedMotion) {
+      this.shake = Math.max(0, this.shake - dt / 320);
+      const targetShakeX = (Math.random() - 0.5) * 12 * this.shake;
+      const targetShakeY = (Math.random() - 0.5) * 9 * this.shake;
+      this.shakeX = damp(this.shakeX, targetShakeX, 28, dt);
+      this.shakeY = damp(this.shakeY, targetShakeY, 28, dt);
+      this.shakeLayer.x = this.shakeX;
+      this.shakeLayer.y = this.shakeY;
+    } else {
+      this.shakeX = damp(this.shakeX, 0, 20, dt);
+      this.shakeY = damp(this.shakeY, 0, 20, dt);
+      this.shakeLayer.x = this.shakeX;
+      this.shakeLayer.y = this.shakeY;
+    }
+
+    this.hero.x = this.displayX;
+    this.hero.y = this.displayY;
+    this.hero.rotation = this.displayRot;
+    this.hero.scale.set(this.displayScale);
+    this.hero.alpha = this.displayAlpha;
 
     // Glow under hero
     this.heroGlow.clear();
@@ -558,20 +653,24 @@ export class GameScene {
       phase === 'CRASHED'
         ? pal.accentHot
         : phase === 'FLYING'
-          ? riskColor(multiplier, pal)
+          ? riskColor(this.smoothMult, pal)
           : pal.accent;
-    const glowR = 18 * scale + (phase === 'FLYING' ? Math.min(20, multiplier) : 0);
-    this.heroGlow.circle(ax, ay, glowR);
-    this.heroGlow.fill({ color: glowCol, alpha: phase === 'FLYING' ? 0.22 : 0.12 });
-    this.heroGlow.circle(ax, ay, glowR * 1.6);
-    this.heroGlow.fill({ color: glowCol, alpha: 0.06 });
+    const glowR =
+      18 * this.displayScale + (phase === 'FLYING' ? Math.min(18, this.smoothMult) : 0);
+    this.heroGlow.circle(this.displayX, this.displayY, glowR);
+    this.heroGlow.fill({
+      color: glowCol,
+      alpha: (phase === 'FLYING' ? 0.22 : 0.12) * this.displayAlpha,
+    });
+    this.heroGlow.circle(this.displayX, this.displayY, glowR * 1.55);
+    this.heroGlow.fill({ color: glowCol, alpha: 0.06 * this.displayAlpha });
 
     // Particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
-      p.life -= deltaMs;
-      p.g.x += p.vx * (deltaMs / 16);
-      p.g.y += p.vy * (deltaMs / 16);
+      p.life -= dt;
+      p.g.x += p.vx * (dt / 16);
+      p.g.y += p.vy * (dt / 16);
       p.g.alpha = Math.max(0, p.life / p.max);
       if (p.life <= 0) {
         this.particleLayer.removeChild(p.g);
@@ -580,12 +679,11 @@ export class GameScene {
       }
     }
 
-    // Afterimages
     for (let i = this.afterimages.length - 1; i >= 0; i--) {
       const a = this.afterimages[i];
-      a.life -= deltaMs;
-      a.g.alpha = Math.max(0, a.life / 280);
-      a.g.scale.set(1 + (1 - a.g.alpha) * 0.4);
+      a.life -= dt;
+      a.g.alpha = Math.max(0, a.life / 300);
+      a.g.scale.set(1 + (1 - a.g.alpha) * 0.35);
       if (a.life <= 0) {
         this.afterimageLayer.removeChild(a.g);
         a.g.destroy();
@@ -602,8 +700,9 @@ export class GameScene {
     color: number,
     life = 400,
   ) {
+    if (this.particles.length > 80) return;
     const g = new Graphics();
-    g.circle(0, 0, 1.2 + Math.random() * 2.2);
+    g.circle(0, 0, 1.2 + Math.random() * 2);
     g.fill({ color });
     g.x = x;
     g.y = y;
@@ -612,31 +711,30 @@ export class GameScene {
   }
 
   private spawnAfterimage(x: number, y: number, color: number) {
+    if (this.afterimages.length > 24) return;
     const g = new Graphics();
     g.circle(0, 0, 8);
-    g.fill({ color, alpha: 0.35 });
+    g.fill({ color, alpha: 0.32 });
     g.x = x;
     g.y = y;
     this.afterimageLayer.addChild(g);
-    this.afterimages.push({ g, life: 280 });
+    this.afterimages.push({ g, life: 300 });
   }
 
   private burst(n: number, color?: number) {
-    const x = this.hero.x;
-    const y = this.hero.y;
+    const x = this.displayX || this.hero.x;
+    const y = this.displayY || this.hero.y;
     const pal = this.pal();
     for (let i = 0; i < n; i++) {
-      const a = (Math.PI * 2 * i) / n + Math.random() * 0.2;
-      const c =
-        color ??
-        (Math.random() > 0.5 ? pal.accentHot : pal.gold);
+      const a = (Math.PI * 2 * i) / n + Math.random() * 0.15;
+      const c = color ?? (Math.random() > 0.5 ? pal.accentHot : pal.gold);
       this.spawnParticle(
         x,
         y,
-        Math.cos(a) * (2 + Math.random() * 5),
-        Math.sin(a) * (2 + Math.random() * 5),
+        Math.cos(a) * (2 + Math.random() * 4.5),
+        Math.sin(a) * (2 + Math.random() * 4.5),
         c,
-        350 + Math.random() * 400,
+        320 + Math.random() * 360,
       );
     }
   }

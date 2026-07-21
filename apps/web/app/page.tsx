@@ -19,6 +19,10 @@ import { PracticeBetState } from '@aviator/shared';
 import { unlockAudio } from '@/lib/sound';
 import Link from 'next/link';
 
+/**
+ * Play page: fits stage + bets in the viewport (no scroll to place a bet).
+ * Live feed is desktop-only; mobile keeps focus on flight + dual bet panels.
+ */
 export default function HomePage() {
   useGameSocket();
   const lastError = useGameStore((s) => s.lastError);
@@ -55,7 +59,9 @@ export default function HomePage() {
 
   return (
     <div
-      className={`flex flex-col gap-2 sm:gap-2.5 ${hasLiveFlying ? 'pb-24 lg:pb-0' : ''}`}
+      className={`play-shell flex min-h-0 flex-1 flex-col gap-1 overflow-hidden sm:gap-1.5 ${
+        hasLiveFlying ? 'pb-[4.5rem] lg:pb-0' : ''
+      }`}
     >
       <ToastHost />
       <CoachMarks />
@@ -63,18 +69,23 @@ export default function HomePage() {
       <ConfettiBurst />
       <StickyCashOut />
 
-      <HistoryBar />
+      <div className="shrink-0">
+        <HistoryBar compact />
+      </div>
 
-      <div className="grid gap-2 lg:grid-cols-12 lg:gap-2.5">
-        <div className="flex flex-col gap-2 lg:col-span-8 xl:col-span-9">
-          <FlightStage />
+      <div className="grid min-h-0 flex-1 gap-1.5 lg:grid-cols-12 lg:gap-2">
+        {/* Stage + bets — always visible without page scroll */}
+        <div className="flex min-h-0 flex-col gap-1.5 lg:col-span-8 xl:col-span-9">
+          <div className="min-h-0 flex-1">
+            <FlightStage compact />
+          </div>
 
           {lastError && (
-            <div className="flex items-start justify-between gap-2 rounded-lg border border-av-red/40 bg-av-red/10 px-3 py-2 text-sm text-[#ff8a9a]">
-              <span>{lastError}</span>
+            <div className="flex shrink-0 items-start justify-between gap-2 rounded-lg border border-av-red/40 bg-av-red/10 px-2 py-1.5 text-xs text-[#ff8a9a]">
+              <span className="line-clamp-2">{lastError}</span>
               <button
                 type="button"
-                className="shrink-0 text-xs font-bold uppercase text-white/60"
+                className="shrink-0 text-[10px] font-bold uppercase text-white/60"
                 onClick={() => setLastError(null)}
               >
                 Dismiss
@@ -82,52 +93,50 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-2" data-coach="bets">
-            <BetSlotPanel slot={1} />
-            <BetSlotPanel slot={2} />
+          <div
+            className="grid shrink-0 grid-cols-2 gap-1.5 sm:gap-2"
+            data-coach="bets"
+          >
+            <BetSlotPanel slot={1} compact />
+            <BetSlotPanel slot={2} compact />
           </div>
         </div>
 
+        {/* Live feed — large screens only so mobile never scrolls past bets */}
         {!focusMode && (
-          <div className="min-h-[280px] lg:col-span-4 xl:col-span-3 lg:min-h-0">
-            <div className="h-full max-h-[520px] lg:h-full lg:max-h-none">
-              <LiveFeed />
-            </div>
+          <div className="hidden min-h-0 lg:col-span-4 lg:block xl:col-span-3">
+            <LiveFeed compact />
           </div>
         )}
         {focusMode && (
-          <div className="hidden lg:col-span-4 xl:col-span-3 lg:block">
-            <div className="flex h-full min-h-[200px] flex-col items-center justify-center rounded-xl border border-dashed border-av-border bg-av-panel/50 p-4 text-center">
+          <div className="hidden min-h-0 lg:col-span-4 lg:block xl:col-span-3">
+            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-av-border bg-av-panel/50 p-3 text-center">
               <div className="text-sm font-bold text-white/70">Focus mode</div>
-              <p className="mt-1 text-xs text-av-muted">
-                Live feed hidden. Open ⚙ to turn off.
-              </p>
+              <p className="mt-1 text-xs text-av-muted">Feed hidden · ⚙ to exit</p>
             </div>
           </div>
         )}
       </div>
 
-      {!focusMode && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-av-border bg-av-panel px-3 py-2 text-[11px] text-av-muted">
-          <span>Virtual credits only · Provably fair simulation</span>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/verify" className="font-semibold text-white/70 hover:text-white">
-              Fairness
+      <div className="hidden shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-av-border bg-av-panel px-3 py-1 text-[10px] text-av-muted sm:flex">
+        <span>Virtual credits only · Provably fair</span>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/verify" className="font-semibold text-white/70 hover:text-white">
+            Fairness
+          </Link>
+          <Link href="/lab" className="font-semibold text-white/70 hover:text-white">
+            Lab
+          </Link>
+          <Link href="/stats" className="font-semibold text-white/70 hover:text-white">
+            Stats
+          </Link>
+          {!user && (
+            <Link href="/login" className="font-bold text-av-red hover:underline">
+              Log in
             </Link>
-            <Link href="/lab" className="font-semibold text-white/70 hover:text-white">
-              Strategy lab
-            </Link>
-            <Link href="/stats" className="font-semibold text-white/70 hover:text-white">
-              My stats
-            </Link>
-            {!user && (
-              <Link href="/login" className="font-bold text-av-red hover:underline">
-                Log in
-              </Link>
-            )}
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

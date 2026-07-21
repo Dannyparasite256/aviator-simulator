@@ -106,10 +106,10 @@ export function StickyCashOut() {
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-[70] border-t border-av-border bg-av-bg/95 p-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur-md lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-[70] border-t border-av-border bg-av-bg/95 p-1.5 pb-[calc(0.35rem+var(--safe-bottom))] backdrop-blur-md lg:hidden"
       data-coach="cashout"
     >
-      <div className={`grid gap-2 ${liveSlots.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+      <div className={`grid gap-1.5 ${liveSlots.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {liveSlots.map((slot) => {
           const bet = bets[slot]!;
           const win = bet.remainingAmount * multiplier;
@@ -120,7 +120,7 @@ export function StickyCashOut() {
               type="button"
               disabled={busy === slot}
               onClick={() => void cash(slot)}
-              className={`btn-success flex min-h-[56px] flex-col !rounded-xl py-3 cash-heat-${heat} active:scale-[0.98]`}
+              className={`btn-success flex min-h-[48px] flex-col !rounded-xl py-2 cash-heat-${heat} active:scale-[0.98]`}
             >
               <span className="text-[11px] font-bold uppercase tracking-wide opacity-90">
                 Cash out {liveSlots.length > 1 ? `· Bet ${slot}` : ''}

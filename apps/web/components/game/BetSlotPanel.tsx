@@ -11,13 +11,16 @@ import { useUiStore } from '@/lib/ui-store';
 
 interface Props {
   slot: BetSlot;
+  /** Dense layout for viewport-fit play page (no scroll to bet). */
+  compact?: boolean;
 }
 
 type Tab = 'bet' | 'auto';
 
 const QUICK = [10, 50, 100, 500, 1000];
+const QUICK_COMPACT = [10, 50, 100, 500];
 
-export function BetSlotPanel({ slot }: Props) {
+export function BetSlotPanel({ slot, compact = false }: Props) {
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const phase = useGameStore((s) => s.phase);
@@ -363,34 +366,43 @@ export function BetSlotPanel({ slot }: Props) {
   const cashHeat =
     multiplier >= 10 ? 'hot' : multiplier >= 5 ? 'warm' : multiplier >= 2 ? 'mid' : 'cool';
 
+  const quick = compact ? QUICK_COMPACT : QUICK;
+  const pad = compact ? 'p-1.5 sm:p-2' : 'p-3 sm:p-3.5';
+  const btnH = compact ? 'h-9' : 'h-11';
+  const primaryPy = compact ? 'py-2 sm:py-2.5' : 'py-3.5';
+
   return (
     <div
-      className={`flex flex-col rounded-xl border border-av-border bg-av-panel p-3 shadow-bet sm:p-3.5 ${slotAccent} ${
+      className={`flex flex-col rounded-xl border border-av-border bg-av-panel shadow-bet ${pad} ${slotAccent} ${
         shakeLoss ? 'bet-shake' : ''
       } ${flashWin ? 'bet-win-flash' : ''}`}
       data-coach={slot === 1 ? 'bet' : undefined}
     >
-      <div className="mb-2 flex items-center justify-between">
-        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-white/80">
-          <span className={`slot-dot h-2 w-2 rounded-full ${slot === 1 ? 'bg-cyan-400' : 'bg-violet-400'}`} />
+      <div className={`flex items-center justify-between ${compact ? 'mb-1' : 'mb-2'}`}>
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-white/80 sm:text-xs">
+          <span
+            className={`slot-dot h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2 ${
+              slot === 1 ? 'bg-cyan-400' : 'bg-violet-400'
+            }`}
+          />
           Bet {slot}
         </span>
         {phase === 'WAITING' || phase === 'COUNTDOWN' ? (
-          <span className="rounded-full bg-av-green/15 px-2 py-0.5 text-[10px] font-bold text-av-green">
+          <span className="rounded-full bg-av-green/15 px-1.5 py-0.5 text-[9px] font-bold text-av-green sm:px-2 sm:text-[10px]">
             Open
           </span>
         ) : phase === 'FLYING' ? (
-          <span className="rounded-full bg-av-pink/15 px-2 py-0.5 text-[10px] font-bold text-av-pink">
-            In flight
+          <span className="rounded-full bg-av-pink/15 px-1.5 py-0.5 text-[9px] font-bold text-av-pink sm:px-2 sm:text-[10px]">
+            Live
           </span>
         ) : (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-av-muted">
-            Next round
+          <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-bold text-av-muted sm:px-2 sm:text-[10px]">
+            Wait
           </span>
         )}
       </div>
 
-      {steps && (
+      {steps && !compact && (
         <div className="mb-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-av-muted">
           {['Queued', 'Active', 'Cashed'].map((label, i) => {
             const n = i + 1;
@@ -411,37 +423,39 @@ export function BetSlotPanel({ slot }: Props) {
         </div>
       )}
 
-      <div className="mb-3 grid grid-cols-2 rounded-lg bg-black/40 p-0.5">
+      <div className={`grid grid-cols-2 rounded-lg bg-black/40 p-0.5 ${compact ? 'mb-1.5' : 'mb-3'}`}>
         {(['bet', 'auto'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded-md py-1.5 text-xs font-bold uppercase tracking-wide transition active:scale-[0.98] ${
-              tab === t ? 'bg-av-border text-white' : 'text-av-muted hover:text-white/80'
-            }`}
+            className={`rounded-md font-bold uppercase tracking-wide transition active:scale-[0.98] ${
+              compact ? 'py-1 text-[10px]' : 'py-1.5 text-xs'
+            } ${tab === t ? 'bg-av-border text-white' : 'text-av-muted hover:text-white/80'}`}
           >
             {t}
           </button>
         ))}
       </div>
 
-      <div className="mb-2">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-av-muted">Bet amount (VC)</span>
+      <div className={compact ? 'mb-1.5' : 'mb-2'}>
+        {!compact && (
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-av-muted">Bet amount (VC)</span>
+            <button
+              type="button"
+              className="text-[11px] font-bold text-av-gold hover:underline"
+              onClick={maxAll}
+              disabled={inputsLocked || !user}
+            >
+              Max
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-1 sm:gap-1.5">
           <button
             type="button"
-            className="text-[11px] font-bold text-av-gold hover:underline"
-            onClick={maxAll}
-            disabled={inputsLocked || !user}
-          >
-            Max
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40"
+            className={`flex ${btnH} w-8 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-base font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40 sm:w-10 sm:text-lg`}
             onPointerDown={() => !inputsLocked && startHold(-10)}
             onPointerUp={stopHold}
             onPointerLeave={stopHold}
@@ -452,7 +466,9 @@ export function BetSlotPanel({ slot }: Props) {
           </button>
           <input
             type="number"
-            className="input-field h-11 text-center font-mono text-base font-bold"
+            className={`input-field ${btnH} text-center font-mono font-bold ${
+              compact ? 'text-sm' : 'text-base'
+            }`}
             value={amount}
             min={minBet}
             max={maxBet}
@@ -463,7 +479,7 @@ export function BetSlotPanel({ slot }: Props) {
           />
           <button
             type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40"
+            className={`flex ${btnH} w-8 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-base font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40 sm:w-10 sm:text-lg`}
             onPointerDown={() => !inputsLocked && startHold(10)}
             onPointerUp={stopHold}
             onPointerLeave={stopHold}
@@ -474,8 +490,7 @@ export function BetSlotPanel({ slot }: Props) {
           </button>
         </div>
 
-        {/* Balance usage bar */}
-        {user && !inputsLocked && (
+        {user && !inputsLocked && !compact && (
           <div className="mt-1.5">
             <div className="h-1 overflow-hidden rounded-full bg-white/10">
               <div
@@ -485,20 +500,19 @@ export function BetSlotPanel({ slot }: Props) {
                 style={{ width: `${balancePct}%` }}
               />
             </div>
-            <div className="mt-0.5 text-[10px] text-av-muted">
-              {balancePct.toFixed(0)}% of balance
-            </div>
           </div>
         )}
 
-        <div className="mt-2 grid grid-cols-5 gap-1">
-          {QUICK.map((v) => (
+        <div className={`grid gap-1 ${compact ? 'mt-1 grid-cols-4' : 'mt-2 grid-cols-5'}`}>
+          {quick.map((v) => (
             <button
               key={v}
               type="button"
               disabled={inputsLocked}
               onClick={() => setAmountSafe(v)}
-              className={`chip-tap rounded-md border py-1.5 text-xs font-semibold active:scale-95 disabled:opacity-40 ${
+              className={`chip-tap rounded-md border font-semibold active:scale-95 disabled:opacity-40 ${
+                compact ? 'py-1 text-[10px]' : 'py-1.5 text-xs'
+              } ${
                 amount === v
                   ? 'border-av-red bg-av-red/20 text-white'
                   : 'border-av-border bg-black/30 text-white/70 hover:bg-white/10'
@@ -509,12 +523,14 @@ export function BetSlotPanel({ slot }: Props) {
           ))}
         </div>
 
-        <div className="mt-1.5 grid grid-cols-3 gap-1">
+        <div className={`grid grid-cols-3 gap-1 ${compact ? 'mt-1' : 'mt-1.5'}`}>
           <button
             type="button"
             disabled={inputsLocked}
             onClick={half}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
+            className={`rounded-md border border-av-border bg-black/30 font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40 ${
+              compact ? 'py-1 text-[10px]' : 'py-1.5 text-[11px]'
+            }`}
           >
             ½
           </button>
@@ -522,7 +538,9 @@ export function BetSlotPanel({ slot }: Props) {
             type="button"
             disabled={inputsLocked}
             onClick={double}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
+            className={`rounded-md border border-av-border bg-black/30 font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40 ${
+              compact ? 'py-1 text-[10px]' : 'py-1.5 text-[11px]'
+            }`}
           >
             2×
           </button>
@@ -530,7 +548,9 @@ export function BetSlotPanel({ slot }: Props) {
             type="button"
             disabled={inputsLocked || !user}
             onClick={maxAll}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
+            className={`rounded-md border border-av-border bg-black/30 font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40 ${
+              compact ? 'py-1 text-[10px]' : 'py-1.5 text-[11px]'
+            }`}
             title="Use full balance (confirm by pressing Bet)"
           >
             MAX
@@ -539,30 +559,32 @@ export function BetSlotPanel({ slot }: Props) {
       </div>
 
       {tab === 'auto' && (
-        <div className="mb-3">
-          <label className="label">Auto cash out at</label>
+        <div className={compact ? 'mb-1.5' : 'mb-3'}>
+          {!compact && <label className="label">Auto cash out at</label>}
           <div className="relative">
             <input
               type="number"
-              className="input-field h-11 pr-8 font-mono font-bold"
+              className={`input-field pr-7 font-mono font-bold ${compact ? 'h-9 text-sm' : 'h-11'}`}
               step={0.01}
               min={1.01}
               value={autoCash}
               onChange={(e) => setAutoCash(e.target.value)}
               disabled={inputsLocked}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-av-muted">
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-av-muted sm:text-sm">
               x
             </span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className={`flex flex-wrap gap-1 ${compact ? 'mt-1' : 'mt-1.5'}`}>
             {[1.5, 2, 3, 5, 10].map((v) => (
               <button
                 key={v}
                 type="button"
                 disabled={inputsLocked}
                 onClick={() => setAutoCash(v.toFixed(2))}
-                className={`rounded-md border px-2 py-1 text-[11px] font-semibold active:scale-95 disabled:opacity-40 ${
+                className={`rounded-md border font-semibold active:scale-95 disabled:opacity-40 ${
+                  compact ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-[11px]'
+                } ${
                   Number(autoCash) === v
                     ? 'border-av-green/50 bg-av-green/15 text-av-green'
                     : 'border-av-border bg-black/30 text-white/70 hover:bg-white/10'
@@ -572,34 +594,35 @@ export function BetSlotPanel({ slot }: Props) {
               </button>
             ))}
           </div>
-          <p className="mt-1 text-[10px] text-av-muted">
-            Green line on the graph marks your auto target while flying.
-          </p>
         </div>
       )}
 
       {!user ? (
-        <Link href="/login" className="btn-primary w-full py-3.5 text-sm">
-          Log in to play
+        <Link href="/login" className={`btn-primary w-full text-sm ${primaryPy}`}>
+          Log in
         </Link>
       ) : !activeBet ? (
         <div>
           <button
             type="button"
-            className="btn-primary w-full flex-col gap-0.5 !rounded-xl py-3.5 active:scale-[0.98]"
+            className={`btn-primary w-full flex-col gap-0 !rounded-xl active:scale-[0.98] ${primaryPy}`}
             disabled={busy || safeAmount > credits}
             onClick={() => void place()}
             title={placeDisabledReason ?? undefined}
           >
-            <span className="text-[15px] font-extrabold uppercase tracking-wide">
-              {phase === 'WAITING' || phase === 'COUNTDOWN' ? 'Bet' : 'Bet (next round)'}
+            <span
+              className={`font-extrabold uppercase tracking-wide ${
+                compact ? 'text-xs sm:text-sm' : 'text-[15px]'
+              }`}
+            >
+              {phase === 'WAITING' || phase === 'COUNTDOWN' ? 'Bet' : 'Next round'}
             </span>
-            <span className="font-mono text-xs font-semibold opacity-90">
+            <span className="font-mono text-[10px] font-semibold opacity-90 sm:text-xs">
               {safeAmount.toLocaleString()} VC
             </span>
           </button>
           {placeDisabledReason && safeAmount > credits && (
-            <p className="mt-1 text-center text-[10px] font-semibold text-av-red/90">
+            <p className="mt-0.5 text-center text-[9px] font-semibold text-av-red/90">
               {placeDisabledReason}
             </p>
           )}
@@ -607,82 +630,105 @@ export function BetSlotPanel({ slot }: Props) {
       ) : activeBet.status === 'QUEUED' ? (
         <button
           type="button"
-          className="btn-cancel w-full flex-col !rounded-xl py-3.5 active:scale-[0.98]"
+          className={`btn-cancel w-full flex-col !rounded-xl active:scale-[0.98] ${primaryPy}`}
           disabled={!canCancel || busy}
           onClick={() => void cancel()}
         >
-          <span className="text-[15px] font-extrabold uppercase">Cancel</span>
-          <span className="font-mono text-xs">Queued {activeBet.amount} VC</span>
+          <span className={`font-extrabold uppercase ${compact ? 'text-xs' : 'text-[15px]'}`}>
+            Cancel
+          </span>
+          <span className="font-mono text-[10px]">Queued {activeBet.amount}</span>
         </button>
       ) : canCash ? (
-        <div className="space-y-2">
+        <div className={compact ? 'space-y-1' : 'space-y-2'}>
           <button
             type="button"
-            className={`btn-success w-full flex-col !rounded-xl py-3.5 shadow-[0_0_24px_rgba(40,169,9,0.35)] cash-heat-${cashHeat} active:scale-[0.98]`}
+            className={`btn-success w-full flex-col !rounded-xl shadow-[0_0_24px_rgba(40,169,9,0.35)] cash-heat-${cashHeat} active:scale-[0.98] ${primaryPy}`}
             disabled={busy}
             onClick={() => void cashOut(1)}
           >
-            <span className="text-[15px] font-extrabold uppercase tracking-wide">Cash Out</span>
-            <span className="font-mono text-sm font-bold tabular-nums">
+            <span
+              className={`font-extrabold uppercase tracking-wide ${
+                compact ? 'text-xs sm:text-sm' : 'text-[15px]'
+              }`}
+            >
+              Cash Out
+            </span>
+            <span className="font-mono text-xs font-bold tabular-nums sm:text-sm">
               {(livePotential ?? activeBet.remainingAmount * multiplier).toFixed(2)} VC
             </span>
-            <span className="text-[10px] font-semibold opacity-80">
-              +
-              {(
-                (livePotential ?? activeBet.remainingAmount * multiplier) -
-                activeBet.remainingAmount
-              ).toFixed(2)}{' '}
-              profit
-            </span>
+            {!compact && (
+              <span className="text-[10px] font-semibold opacity-80">
+                +
+                {(
+                  (livePotential ?? activeBet.remainingAmount * multiplier) -
+                  activeBet.remainingAmount
+                ).toFixed(2)}{' '}
+                profit
+              </span>
+            )}
           </button>
-          <button
-            type="button"
-            className="btn-secondary w-full text-xs active:scale-[0.98]"
-            disabled={busy}
-            onClick={() => void cashOut(0.5)}
-          >
-            Cash out 50%
-          </button>
+          {!compact && (
+            <button
+              type="button"
+              className="btn-secondary w-full text-xs active:scale-[0.98]"
+              disabled={busy}
+              onClick={() => void cashOut(0.5)}
+            >
+              Cash out 50%
+            </button>
+          )}
         </div>
       ) : (
-        <div className="space-y-2">
-          <div className="rounded-xl border border-av-green/30 bg-av-green/10 px-3 py-3 text-center">
-            <div className="text-[11px] font-semibold uppercase text-av-green">
-              Bet locked · waiting
+        <div className={compact ? 'space-y-1' : 'space-y-2'}>
+          <div
+            className={`rounded-xl border border-av-green/30 bg-av-green/10 text-center ${
+              compact ? 'px-2 py-1.5' : 'px-3 py-3'
+            }`}
+          >
+            <div className="text-[9px] font-semibold uppercase text-av-green sm:text-[11px]">
+              Locked
             </div>
-            <div className="mt-0.5 font-mono text-lg font-bold">{activeBet.remainingAmount} VC</div>
+            <div className={`font-mono font-bold ${compact ? 'text-sm' : 'mt-0.5 text-lg'}`}>
+              {activeBet.remainingAmount} VC
+            </div>
             {activeBet.autoCashOutAt != null && (
-              <div className="text-xs text-av-muted">Auto @ {activeBet.autoCashOutAt}x</div>
+              <div className="text-[10px] text-av-muted">Auto @ {activeBet.autoCashOutAt}x</div>
             )}
           </div>
           {canCancel && (
             <button
               type="button"
-              className="btn-secondary w-full text-sm"
+              className={`btn-secondary w-full ${compact ? 'py-1.5 text-xs' : 'text-sm'}`}
               onClick={() => void cancel()}
               disabled={busy}
             >
-              Cancel bet
+              Cancel
             </button>
           )}
         </div>
       )}
 
-      {bet?.cashedOut && bet.cashOutMultiplier != null && !activeBet && (
+      {bet?.cashedOut && bet.cashOutMultiplier != null && !activeBet && !compact && (
         <p className="mt-2 text-center text-xs font-semibold text-av-green">
           Last win @ {bet.cashOutMultiplier.toFixed(2)}x · +{bet.profit?.toFixed(2)} VC
         </p>
       )}
 
-      {!activeBet && user && (
+      {!activeBet && user && !compact && (
         <p className="mt-2 text-center text-[10px] text-av-muted">
           Potential ~{potential.toLocaleString()} VC · Balance {credits.toLocaleString()} VC
         </p>
       )}
 
       {!canPlace && user && !activeBet && safeAmount > credits && (
-        <Link href="/wallet" className="mt-2 text-center text-xs font-bold text-av-gold hover:underline">
-          Need credits? Open Wallet →
+        <Link
+          href="/wallet"
+          className={`text-center font-bold text-av-gold hover:underline ${
+            compact ? 'mt-1 text-[10px]' : 'mt-2 text-xs'
+          }`}
+        >
+          Wallet →
         </Link>
       )}
     </div>

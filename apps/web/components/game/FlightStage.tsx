@@ -14,7 +14,7 @@ const PHASE_LABEL: Record<string, string> = {
   CRASHED: 'Crashed',
 };
 
-export function FlightStage() {
+export function FlightStage({ compact = false }: { compact?: boolean }) {
   const phase = useGameStore((s) => s.phase);
   const multiplier = useGameStore((s) => s.multiplier);
   const predicted = useGameStore((s) => s.predictedMultiplier);
@@ -32,21 +32,30 @@ export function FlightStage() {
   const [seedPulse, setSeedPulse] = useState(false);
   const [shakeCss, setShakeCss] = useState(false);
   const prevCdSec = useRef<number | null>(null);
+  const smoothRef = useRef(1);
 
-  // Smooth client-side multiplier interpolation while flying
+  // Smooth multiplier display (eases between server ticks)
   useEffect(() => {
     if (phase !== 'FLYING') {
+      smoothRef.current = multiplier;
       setDisplayMult(multiplier);
       return;
     }
     let raf = 0;
-    const loop = () => {
-      setDisplayMult(predicted());
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = Math.min(40, now - last);
+      last = now;
+      const target = predicted();
+      const k = reducedMotion ? 18 : 12;
+      const t = 1 - Math.exp(-k * (dt / 1000));
+      smoothRef.current = smoothRef.current + (target - smoothRef.current) * t;
+      setDisplayMult(smoothRef.current);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [phase, predicted, multiplier]);
+  }, [phase, predicted, multiplier, reducedMotion]);
 
   useEffect(() => {
     if (phase === 'CRASHED') {
@@ -64,7 +73,6 @@ export function FlightStage() {
     }
   }, [phase, crashPoint, reducedMotion]);
 
-  // Countdown tick SFX on whole seconds
   useEffect(() => {
     if (phase !== 'COUNTDOWN') {
       prevCdSec.current = null;
@@ -92,9 +100,9 @@ export function FlightStage() {
 
   const multScale =
     phase === 'FLYING'
-      ? 1 + Math.min(0.12, Math.log(Math.max(1, shown)) * 0.04)
+      ? 1 + Math.min(0.1, Math.log(Math.max(1, shown)) * 0.035)
       : phase === 'CRASHED'
-        ? 1.05
+        ? 1.04
         : 1;
 
   const glowClass =
@@ -110,15 +118,18 @@ export function FlightStage() {
 
   return (
     <div
-      className={`relative overflow-hidden rounded-xl border border-av-border stage-shell theme-${colorTheme} ${
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-av-border stage-shell theme-${colorTheme} ${
         shakeCss ? 'stage-shake' : ''
       }`}
       data-coach="stage"
     >
-      <div className="relative min-h-[240px] sm:min-h-[300px] md:min-h-[380px] lg:min-h-[420px]">
+      <div
+        className={`relative min-h-0 flex-1 ${
+          compact ? '' : 'min-h-[240px] sm:min-h-[300px] md:min-h-[380px]'
+        }`}
+      >
         <PixiCanvas />
 
-        {/* Crash flash + vignette */}
         {phase === 'CRASHED' && (
           <>
             <div
@@ -134,10 +145,9 @@ export function FlightStage() {
           </>
         )}
 
-        {/* Phase badge */}
-        <div className="absolute left-1/2 top-2 z-30 -translate-x-1/2 sm:top-3">
+        <div className="absolute left-1/2 top-1.5 z-30 -translate-x-1/2 sm:top-2">
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider backdrop-blur-md ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-md sm:px-2.5 sm:py-1 sm:text-[10px] ${
               phase === 'FLYING'
                 ? 'border-av-pink/40 bg-av-pink/15 text-av-pink'
                 : phase === 'CRASHED'
@@ -163,11 +173,10 @@ export function FlightStage() {
         </div>
 
         <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
-          {/* Big 3-2-1 countdown */}
           {showBigCd && (
             <div
               key={cdSec}
-              className={`mb-1 font-mono text-7xl font-black tabular-nums text-white/90 sm:text-8xl ${
+              className={`mb-0.5 font-mono text-5xl font-black tabular-nums text-white/90 sm:text-6xl md:text-7xl ${
                 reducedMotion ? '' : 'countdown-pop'
               }`}
             >
@@ -176,18 +185,18 @@ export function FlightStage() {
           )}
 
           {phase === 'COUNTDOWN' && !showBigCd && (
-            <div className="mb-2 text-sm font-semibold uppercase tracking-widest text-av-muted">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-av-muted sm:text-sm">
               Starting soon…
             </div>
           )}
           {phase === 'WAITING' && (
-            <div className="mb-2 text-sm font-semibold uppercase tracking-widest text-av-muted">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-av-muted sm:text-sm">
               Place your bets
             </div>
           )}
           {phase === 'CRASHED' && (
             <div
-              className={`mb-1 text-base font-extrabold uppercase tracking-[0.2em] text-av-red sm:text-lg ${
+              className={`mb-0.5 text-sm font-extrabold uppercase tracking-[0.2em] text-av-red sm:text-base ${
                 flyAwayPulse && !reducedMotion ? 'scale-110' : 'scale-100'
               } transition-transform duration-300`}
             >
@@ -196,38 +205,35 @@ export function FlightStage() {
           )}
 
           <div
-            className={`font-mono font-extrabold tracking-tight transition-transform duration-150 ${multColor} ${glowClass} ${
-              phase === 'FLYING' ? 'text-5xl sm:text-6xl md:text-7xl' : 'text-5xl sm:text-6xl md:text-7xl'
-            }`}
-            style={{ transform: `scale(${multScale})` }}
+            className={`font-mono text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl ${multColor} ${glowClass}`}
+            style={{
+              transform: `scale(${multScale})`,
+              transition: reducedMotion ? undefined : 'transform 80ms linear',
+            }}
           >
             {shown.toFixed(2)}x
           </div>
 
           {phase === 'FLYING' && (
-            <div className="mt-3 flex items-center gap-2">
-              <div className="h-1 w-28 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className={`h-full rounded-full bg-gradient-to-r from-av-pink to-av-red ${
-                    reducedMotion ? 'w-3/4' : 'w-3/4 animate-pulse'
-                  }`}
-                />
+            <div className="mt-1.5 flex items-center gap-2 sm:mt-2">
+              <div className="h-1 w-20 overflow-hidden rounded-full bg-white/10 sm:w-28">
+                <div className="h-full w-3/4 rounded-full bg-gradient-to-r from-av-pink to-av-red" />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-av-pink/90">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-av-pink/90 sm:text-[10px]">
                 Live
               </span>
             </div>
           )}
         </div>
 
-        <div className="absolute left-2 top-2 z-30 flex items-center gap-1.5 rounded-full bg-black/50 px-2 py-1 text-[10px] font-semibold backdrop-blur sm:left-3 sm:top-3">
+        <div className="absolute left-1.5 top-1.5 z-30 flex items-center gap-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur sm:left-2 sm:top-2 sm:px-2 sm:py-1 sm:text-[10px]">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
               connected ? 'bg-av-green' : reconnecting ? 'animate-pulse bg-av-gold' : 'bg-av-red'
             }`}
           />
           <span className="text-white/70">
-            {connected ? 'Network OK' : reconnecting ? 'Reconnecting…' : 'Offline'}
+            {connected ? 'OK' : reconnecting ? '…' : 'Off'}
           </span>
         </div>
 
@@ -240,22 +246,16 @@ export function FlightStage() {
 
       {phase === 'CRASHED' && serverSeed && (
         <div
-          className={`flex items-center justify-between gap-2 border-t border-av-border bg-black/40 px-3 py-1.5 text-[11px] text-av-muted ${
+          className={`flex shrink-0 items-center justify-between gap-2 border-t border-av-border bg-black/40 px-2 py-1 text-[10px] text-av-muted sm:px-3 sm:text-[11px] ${
             seedPulse ? 'fairness-unlock' : ''
           }`}
         >
-          <span className="flex min-w-0 items-center gap-1.5 truncate font-mono">
-            <span
-              className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-av-green/20 text-[9px] ${
-                seedPulse ? 'seed-lock-pulse' : ''
-              }`}
-            >
-              🔓
-            </span>
-            Crashed @ {multiplier.toFixed(2)}x · seed revealed
+          <span className="flex min-w-0 items-center gap-1 truncate font-mono">
+            <span className={seedPulse ? 'seed-lock-pulse' : ''}>🔓</span>
+            @{multiplier.toFixed(2)}x · seed
           </span>
           <Link href="/verify" className="shrink-0 font-semibold text-av-pink hover:underline">
-            Verify fairness
+            Verify
           </Link>
         </div>
       )}
