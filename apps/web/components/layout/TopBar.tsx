@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useGameStore } from '@/lib/game-store';
 import { useUiStore } from '@/lib/ui-store';
 import { unlockAudio } from '@/lib/sound';
+import { PreferencesMenu } from '@/components/layout/PreferencesMenu';
 
 const STATIC_NAV = [
   { href: '/', label: 'Play' },
@@ -24,6 +25,8 @@ const STATIC_NAV = [
 export function TopBar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
+  const [displayCredits, setDisplayCredits] = useState(0);
+  const [prevCredits, setPrevCredits] = useState(0);
 
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -34,6 +37,10 @@ export function TopBar() {
   const toggleMute = useUiStore((s) => s.toggleMute);
   const hydrateUi = useUiStore((s) => s.hydrate);
   const reconnecting = useUiStore((s) => s.reconnecting);
+  const winStreak = useUiStore((s) => s.winStreak);
+  const sessionBest = useUiStore((s) => s.sessionBestCashOut);
+  const colorTheme = useUiStore((s) => s.colorTheme);
+  const reducedMotion = useUiStore((s) => s.reducedMotion);
 
   useEffect(() => {
     setMounted(true);
@@ -41,7 +48,45 @@ export function TopBar() {
     hydrateUi();
   }, [hydrateAuth, hydrateUi]);
 
-  // Fixed values during SSR + first client render
+  useEffect(() => {
+    if (typeof document !== 'undefined' && mounted) {
+      document.documentElement.dataset.theme = colorTheme;
+      document.documentElement.classList.toggle('reduce-motion', reducedMotion);
+    }
+  }, [colorTheme, reducedMotion, mounted]);
+
+  // Smooth credit count-up
+  useEffect(() => {
+    if (!mounted || !user) {
+      setDisplayCredits(0);
+      return;
+    }
+    const target = user.virtualCredits;
+    if (reducedMotion) {
+      setDisplayCredits(target);
+      setPrevCredits(target);
+      return;
+    }
+    const from = prevCredits || target;
+    if (Math.abs(from - target) < 0.01) {
+      setDisplayCredits(target);
+      return;
+    }
+    const start = performance.now();
+    const dur = 450;
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplayCredits(from + (target - from) * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else setPrevCredits(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.virtualCredits, mounted, reducedMotion]);
+
   const showMuted = mounted ? muted : false;
   const showConnected = mounted ? connected : false;
   const showReconnecting = mounted ? reconnecting : false;
@@ -49,8 +94,10 @@ export function TopBar() {
   const showUser = mounted ? user : null;
   const showCredits =
     mounted && user
-      ? user.virtualCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      ? displayCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })
       : '—';
+  const showStreak = mounted ? winStreak : 0;
+  const showBest = mounted ? sessionBest : 0;
 
   const nav = [
     ...STATIC_NAV,
@@ -62,7 +109,7 @@ export function TopBar() {
       <div className="mx-auto flex h-12 max-w-[1400px] items-center justify-between gap-2 px-3 sm:h-14 sm:px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="relative flex h-8 w-8 items-center justify-center">
-            <span className="absolute inset-0 rounded-full bg-av-red/20" />
+            <span className="absolute inset-0 rounded-full bg-av-red/20 logo-pulse" />
             <svg viewBox="0 0 32 32" className="relative h-7 w-7" aria-hidden>
               <path
                 d="M4 20c6-1 10-6 12-10 2 5 5 9 12 10-5 1-8 4-12 8-3-4-7-7-12-8z"
@@ -87,7 +134,7 @@ export function TopBar() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition active:scale-[0.98] ${
                   active
                     ? 'bg-white/10 text-white'
                     : 'text-av-muted hover:bg-white/5 hover:text-white'
@@ -100,6 +147,25 @@ export function TopBar() {
         </nav>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {showStreak > 0 && (
+            <div
+              className="hidden items-center gap-1 rounded-full border border-av-green/30 bg-av-green/10 px-2 py-1 text-[10px] font-bold text-av-green sm:flex"
+              title="Win streak (rounds with a cash-out)"
+            >
+              🔥 {showStreak}
+            </div>
+          )}
+          {showBest > 0 && (
+            <div
+              className="hidden items-center gap-1 rounded-full border border-av-gold/30 bg-av-gold/10 px-2 py-1 font-mono text-[10px] font-bold text-av-gold lg:flex"
+              title="Session best cash-out"
+            >
+              PB {showBest.toFixed(2)}x
+            </div>
+          )}
+
+          <PreferencesMenu />
+
           <button
             type="button"
             aria-label={showMuted ? 'Unmute sounds' : 'Mute sounds'}
@@ -108,7 +174,7 @@ export function TopBar() {
               void unlockAudio();
               toggleMute();
             }}
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-av-border bg-av-panel text-sm text-white/80 hover:bg-white/5"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-av-border bg-av-panel text-sm text-white/80 hover:bg-white/5 active:scale-95"
           >
             {showMuted ? '🔇' : '🔊'}
           </button>
@@ -123,7 +189,7 @@ export function TopBar() {
                     : 'bg-av-red'
               }`}
             />
-            <span className="font-mono text-sm font-bold text-av-gold sm:text-[15px]">
+            <span className="font-mono text-sm font-bold tabular-nums text-av-gold sm:text-[15px]">
               {showCredits}
             </span>
             <span className="text-[10px] font-semibold uppercase text-av-muted">vc</span>
@@ -141,7 +207,7 @@ export function TopBar() {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="rounded-full border border-av-border bg-av-panel px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/5"
+                className="rounded-full border border-av-border bg-av-panel px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-white/5 active:scale-95"
               >
                 Log out
               </button>
@@ -156,7 +222,7 @@ export function TopBar() {
               </Link>
               <Link
                 href="/register"
-                className="rounded-full bg-av-red px-3 py-1.5 text-xs font-bold text-white sm:px-4 sm:text-sm"
+                className="rounded-full bg-av-red px-3 py-1.5 text-xs font-bold text-white active:scale-95 sm:px-4 sm:text-sm"
               >
                 Register
               </Link>
@@ -172,7 +238,7 @@ export function TopBar() {
             <Link
               key={l.href}
               href={l.href}
-              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold active:scale-95 ${
                 active ? 'bg-av-red text-white' : 'bg-av-panel text-av-muted'
               }`}
             >

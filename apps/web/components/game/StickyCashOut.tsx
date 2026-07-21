@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BetSlot, PracticeBetState } from '@aviator/shared';
 import { useAuthStore } from '@/lib/auth-store';
 import { useGameStore } from '@/lib/game-store';
@@ -20,11 +20,19 @@ export function StickyCashOut() {
   const setBet = useGameStore((s) => s.setBet);
   const setLastError = useGameStore((s) => s.setLastError);
   const pushToast = useUiStore((s) => s.pushToast);
+  const recordCashOut = useUiStore((s) => s.recordCashOut);
   const [busy, setBusy] = useState<BetSlot | null>(null);
 
   const liveSlots = ([1, 2] as BetSlot[]).filter(
     (s) => bets[s]?.status === 'ACTIVE' && !bets[s]?.cashedOut,
   );
+
+  const heat = useMemo(() => {
+    if (multiplier >= 10) return 'hot';
+    if (multiplier >= 5) return 'warm';
+    if (multiplier >= 2) return 'mid';
+    return 'cool';
+  }, [multiplier]);
 
   if (phase !== 'FLYING' || !user || liveSlots.length === 0) return null;
 
@@ -33,7 +41,6 @@ export function StickyCashOut() {
     const bet = bets[slot];
     if (!bet) return;
 
-    // Optimistic update
     const optimisticWin = Math.round(bet.remainingAmount * multiplier * 100) / 100;
     const optimisticProfit = Math.round((optimisticWin - bet.remainingAmount) * 100) / 100;
     const snapshot = { ...bet };
@@ -50,6 +57,13 @@ export function StickyCashOut() {
     });
     setUser({ ...user, virtualCredits: prevCredits + optimisticWin });
     playSfx('cashout');
+    recordCashOut(multiplier);
+    // Light haptic when available
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      /* ignore */
+    }
     pushToast({
       kind: 'win',
       title: `Cash out @ ${multiplier.toFixed(2)}x`,
@@ -77,8 +91,10 @@ export function StickyCashOut() {
         partialProfit: result.partialProfit ?? 0,
       });
       setUser({ ...user, virtualCredits: result.virtualCredits });
+      if (result.cashOutMultiplier != null) {
+        recordCashOut(Number(result.cashOutMultiplier));
+      }
     } catch (e) {
-      // Rollback
       setBet(slot, snapshot);
       setUser({ ...user, virtualCredits: prevCredits });
       setLastError((e as Error).message);
@@ -89,26 +105,32 @@ export function StickyCashOut() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-av-border bg-av-bg/95 p-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur-md lg:hidden">
+    <div
+      className="fixed inset-x-0 bottom-0 z-[70] border-t border-av-border bg-av-bg/95 p-2 pb-[calc(0.5rem+var(--safe-bottom))] backdrop-blur-md lg:hidden"
+      data-coach="cashout"
+    >
       <div className={`grid gap-2 ${liveSlots.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {liveSlots.map((slot) => {
           const bet = bets[slot]!;
           const win = bet.remainingAmount * multiplier;
+          const profit = win - bet.remainingAmount;
           return (
             <button
               key={slot}
               type="button"
               disabled={busy === slot}
               onClick={() => void cash(slot)}
-              className="btn-success flex-col !rounded-xl py-3"
+              className={`btn-success flex min-h-[56px] flex-col !rounded-xl py-3 cash-heat-${heat} active:scale-[0.98]`}
             >
               <span className="text-[11px] font-bold uppercase tracking-wide opacity-90">
                 Cash out {liveSlots.length > 1 ? `· Bet ${slot}` : ''}
               </span>
-              <span className="font-mono text-base font-extrabold">
+              <span className="font-mono text-base font-extrabold tabular-nums">
                 {win.toFixed(2)} vc
               </span>
-              <span className="font-mono text-[11px] opacity-80">@{multiplier.toFixed(2)}x</span>
+              <span className="font-mono text-[11px] opacity-80">
+                @{multiplier.toFixed(2)}x · +{profit.toFixed(2)}
+              </span>
             </button>
           );
         })}

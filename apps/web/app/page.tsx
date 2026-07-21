@@ -7,6 +7,9 @@ import { LiveFeed } from '@/components/game/LiveFeed';
 import { FlightStage } from '@/components/game/FlightStage';
 import { StickyCashOut } from '@/components/game/StickyCashOut';
 import { ToastHost } from '@/components/ui/ToastHost';
+import { CoachMarks } from '@/components/ui/CoachMarks';
+import { PersonalBestBanner } from '@/components/ui/PersonalBestBanner';
+import { ConfettiBurst } from '@/components/ui/ConfettiBurst';
 import { useGameSocket } from '@/hooks/useGameSocket';
 import { useGameStore } from '@/lib/game-store';
 import { useAuthStore } from '@/lib/auth-store';
@@ -26,6 +29,8 @@ export default function HomePage() {
   const phase = useGameStore((s) => s.phase);
   const bet1 = useGameStore((s) => s.bets[1]);
   const bet2 = useGameStore((s) => s.bets[2]);
+  const focusMode = useUiStore((s) => s.focusMode);
+
   const hasLiveFlying =
     phase === 'FLYING' &&
     ((bet1?.status === 'ACTIVE' && !bet1.cashedOut) ||
@@ -42,7 +47,6 @@ export default function HomePage() {
       .catch(() => undefined);
   }, [user, setBets]);
 
-  // Unlock audio on first interaction anywhere on play page
   useEffect(() => {
     const unlock = () => void unlockAudio();
     window.addEventListener('pointerdown', unlock, { once: true });
@@ -54,6 +58,9 @@ export default function HomePage() {
       className={`flex flex-col gap-2 sm:gap-2.5 ${hasLiveFlying ? 'pb-24 lg:pb-0' : ''}`}
     >
       <ToastHost />
+      <CoachMarks />
+      <PersonalBestBanner />
+      <ConfettiBurst />
       <StickyCashOut />
 
       <HistoryBar />
@@ -75,38 +82,52 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2" data-coach="bets">
             <BetSlotPanel slot={1} />
             <BetSlotPanel slot={2} />
           </div>
         </div>
 
-        <div className="min-h-[280px] lg:col-span-4 xl:col-span-3 lg:min-h-0">
-          <div className="h-full max-h-[520px] lg:h-full lg:max-h-none">
-            <LiveFeed />
+        {!focusMode && (
+          <div className="min-h-[280px] lg:col-span-4 xl:col-span-3 lg:min-h-0">
+            <div className="h-full max-h-[520px] lg:h-full lg:max-h-none">
+              <LiveFeed />
+            </div>
           </div>
-        </div>
+        )}
+        {focusMode && (
+          <div className="hidden lg:col-span-4 xl:col-span-3 lg:block">
+            <div className="flex h-full min-h-[200px] flex-col items-center justify-center rounded-xl border border-dashed border-av-border bg-av-panel/50 p-4 text-center">
+              <div className="text-sm font-bold text-white/70">Focus mode</div>
+              <p className="mt-1 text-xs text-av-muted">
+                Live feed hidden. Open ⚙ to turn off.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-av-border bg-av-panel px-3 py-2 text-[11px] text-av-muted">
-        <span>Virtual credits only · Provably fair simulation</span>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/verify" className="font-semibold text-white/70 hover:text-white">
-            Fairness
-          </Link>
-          <Link href="/lab" className="font-semibold text-white/70 hover:text-white">
-            Strategy lab
-          </Link>
-          <Link href="/stats" className="font-semibold text-white/70 hover:text-white">
-            My stats
-          </Link>
-          {!user && (
-            <Link href="/login" className="font-bold text-av-red hover:underline">
-              Log in
+      {!focusMode && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-av-border bg-av-panel px-3 py-2 text-[11px] text-av-muted">
+          <span>Virtual credits only · Provably fair simulation</span>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/verify" className="font-semibold text-white/70 hover:text-white">
+              Fairness
             </Link>
-          )}
+            <Link href="/lab" className="font-semibold text-white/70 hover:text-white">
+              Strategy lab
+            </Link>
+            <Link href="/stats" className="font-semibold text-white/70 hover:text-white">
+              My stats
+            </Link>
+            {!user && (
+              <Link href="/login" className="font-bold text-av-red hover:underline">
+                Log in
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

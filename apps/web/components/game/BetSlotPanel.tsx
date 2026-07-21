@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BetSlot, PracticeBetState } from '@aviator/shared';
 import { useAuthStore } from '@/lib/auth-store';
@@ -28,13 +28,19 @@ export function BetSlotPanel({ slot }: Props) {
   const minBet = useGameStore((s) => s.minBet) || 1;
   const maxBet = useGameStore((s) => s.maxBet) || 100000;
   const pushToast = useUiStore((s) => s.pushToast);
+  const recordCashOut = useUiStore((s) => s.recordCashOut);
 
   const [tab, setTab] = useState<Tab>('bet');
   const [amount, setAmount] = useState(100);
   const [autoCash, setAutoCash] = useState('2.00');
   const [busy, setBusy] = useState(false);
+  const [flashWin, setFlashWin] = useState(false);
+  const [shakeLoss, setShakeLoss] = useState(false);
+  const holdRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevPhase = useRef(phase);
 
-  // Finished bets don't block new ones
+  const slotAccent = slot === 1 ? 'slot-cyan' : 'slot-violet';
+
   const activeBet =
     bet &&
     (bet.status === 'ACTIVE' || bet.status === 'QUEUED') &&
@@ -46,6 +52,11 @@ export function BetSlotPanel({ slot }: Props) {
     const m = phase === 'FLYING' ? multiplier : Number(autoCash) || 1;
     return Math.round(Math.max(0, amount) * Math.max(1, m) * 100) / 100;
   }, [amount, autoCash, multiplier, phase]);
+
+  const livePotential = useMemo(() => {
+    if (!activeBet || phase !== 'FLYING') return null;
+    return Math.round(activeBet.remainingAmount * multiplier * 100) / 100;
+  }, [activeBet, phase, multiplier]);
 
   const canCash =
     !!user && !!activeBet && activeBet.status === 'ACTIVE' && phase === 'FLYING';
@@ -62,6 +73,23 @@ export function BetSlotPanel({ slot }: Props) {
   const canPlace =
     !!user && !activeBet && safeAmount >= minBet && safeAmount <= maxBet && safeAmount <= credits;
 
+  const balancePct = credits > 0 ? Math.min(100, (safeAmount / credits) * 100) : 0;
+
+  // Loss shake when flying bet busts
+  useEffect(() => {
+    if (
+      prevPhase.current === 'FLYING' &&
+      phase === 'CRASHED' &&
+      bet?.status === 'ACTIVE' &&
+      !bet.cashedOut
+    ) {
+      setShakeLoss(true);
+      const t = setTimeout(() => setShakeLoss(false), 500);
+      return () => clearTimeout(t);
+    }
+    prevPhase.current = phase;
+  }, [phase, bet]);
+
   function clampAmount(n: number) {
     if (!Number.isFinite(n)) return minBet;
     return Math.round(Math.min(maxBet, Math.max(minBet, n)) * 100) / 100;
@@ -74,6 +102,21 @@ export function BetSlotPanel({ slot }: Props) {
   function bump(delta: number) {
     setAmount((a) => clampAmount((Number(a) || 0) + delta));
   }
+
+  function startHold(delta: number) {
+    bump(delta);
+    stopHold();
+    holdRef.current = setInterval(() => bump(delta), 80);
+  }
+
+  function stopHold() {
+    if (holdRef.current) {
+      clearInterval(holdRef.current);
+      holdRef.current = null;
+    }
+  }
+
+  useEffect(() => () => stopHold(), []);
 
   function half() {
     setAmount((a) => clampAmount((Number(a) || 0) / 2));
@@ -107,7 +150,6 @@ export function BetSlotPanel({ slot }: Props) {
 
     void unlockAudio();
     setBusy(true);
-    // Clear previous finished bet state
     setBet(slot, null);
 
     try {
@@ -133,6 +175,11 @@ export function BetSlotPanel({ slot }: Props) {
       setUser({ ...user, virtualCredits: result.virtualCredits });
       setLastError(null);
       playSfx('bet');
+      try {
+        navigator.vibrate?.(8);
+      } catch {
+        /* ignore */
+      }
       pushToast({
         kind: 'info',
         title: result.queued || result.status === 'QUEUED' ? `Bet ${slot} queued` : `Bet ${slot} placed`,
@@ -140,7 +187,6 @@ export function BetSlotPanel({ slot }: Props) {
       });
     } catch (e) {
       const msg = (e as Error).message;
-      // Auto-recover stuck-slot errors: resync bets then retry once
       if (msg.toLowerCase().includes('already has an active')) {
         try {
           const open = await api<PracticeBetState[]>('/practice/bets');
@@ -148,7 +194,6 @@ export function BetSlotPanel({ slot }: Props) {
           for (const b of open) {
             if (b.slot === slot) setBet(slot, b);
           }
-          // If server cleaned it, retry place
           const still = open.find(
             (b) =>
               b.slot === slot &&
@@ -217,6 +262,14 @@ export function BetSlotPanel({ slot }: Props) {
       setUser({ ...user, virtualCredits: prevCredits + optimisticWin });
     }
     playSfx('cashout');
+    recordCashOut(multiplier);
+    setFlashWin(true);
+    setTimeout(() => setFlashWin(false), 600);
+    try {
+      navigator.vibrate?.(14);
+    } catch {
+      /* ignore */
+    }
     setBusy(true);
 
     try {
@@ -242,6 +295,9 @@ export function BetSlotPanel({ slot }: Props) {
         cashOutMultiplier: result.cashOutMultiplier,
       });
       setUser({ ...user, virtualCredits: result.virtualCredits });
+      if (result.cashOutMultiplier != null) {
+        recordCashOut(Number(result.cashOutMultiplier));
+      }
       pushToast({
         kind: 'win',
         title: `Cashed out @ ${Number(result.cashOutMultiplier).toFixed(2)}x`,
@@ -277,10 +333,46 @@ export function BetSlotPanel({ slot }: Props) {
 
   const inputsLocked = !!activeBet;
 
+  const placeDisabledReason = !user
+    ? 'Log in to play'
+    : safeAmount > credits
+      ? 'Not enough credits'
+      : busy
+        ? 'Working…'
+        : null;
+
+  // Step indicator for bet lifecycle
+  const steps = useMemo(() => {
+    if (!bet && !activeBet) return null;
+    const b = activeBet ?? bet;
+    if (!b) return null;
+    if (b.status === 'QUEUED') return { step: 1, label: 'Queued' };
+    if (b.status === 'ACTIVE' && !b.cashedOut) {
+      if (phase === 'WAITING' || phase === 'COUNTDOWN') return { step: 1, label: 'Locked' };
+      return { step: 2, label: 'Active' };
+    }
+    if (b.cashedOut || b.status === 'CASHED_OUT') {
+      return {
+        step: 3,
+        label: `Cashed ${b.cashOutMultiplier != null ? Number(b.cashOutMultiplier).toFixed(2) + 'x' : ''}`,
+      };
+    }
+    return null;
+  }, [bet, activeBet, phase]);
+
+  const cashHeat =
+    multiplier >= 10 ? 'hot' : multiplier >= 5 ? 'warm' : multiplier >= 2 ? 'mid' : 'cool';
+
   return (
-    <div className="flex flex-col rounded-xl border border-av-border bg-av-panel p-3 shadow-bet sm:p-3.5">
+    <div
+      className={`flex flex-col rounded-xl border border-av-border bg-av-panel p-3 shadow-bet sm:p-3.5 ${slotAccent} ${
+        shakeLoss ? 'bet-shake' : ''
+      } ${flashWin ? 'bet-win-flash' : ''}`}
+      data-coach={slot === 1 ? 'bet' : undefined}
+    >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-bold uppercase tracking-wide text-white/80">
+        <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-white/80">
+          <span className={`slot-dot h-2 w-2 rounded-full ${slot === 1 ? 'bg-cyan-400' : 'bg-violet-400'}`} />
           Bet {slot}
         </span>
         {phase === 'WAITING' || phase === 'COUNTDOWN' ? (
@@ -298,13 +390,34 @@ export function BetSlotPanel({ slot }: Props) {
         )}
       </div>
 
+      {steps && (
+        <div className="mb-2 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-av-muted">
+          {['Queued', 'Active', 'Cashed'].map((label, i) => {
+            const n = i + 1;
+            const on = steps.step >= n;
+            return (
+              <span key={label} className="flex flex-1 items-center gap-1">
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${
+                    on ? 'bg-av-green/25 text-av-green' : 'bg-white/5 text-white/30'
+                  }`}
+                >
+                  {n}
+                </span>
+                <span className={on ? 'text-white/70' : ''}>{label}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       <div className="mb-3 grid grid-cols-2 rounded-lg bg-black/40 p-0.5">
         {(['bet', 'auto'] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded-md py-1.5 text-xs font-bold uppercase tracking-wide transition ${
+            className={`rounded-md py-1.5 text-xs font-bold uppercase tracking-wide transition active:scale-[0.98] ${
               tab === t ? 'bg-av-border text-white' : 'text-av-muted hover:text-white/80'
             }`}
           >
@@ -328,8 +441,11 @@ export function BetSlotPanel({ slot }: Props) {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:bg-white/10 disabled:opacity-40"
-            onClick={() => bump(-10)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40"
+            onPointerDown={() => !inputsLocked && startHold(-10)}
+            onPointerUp={stopHold}
+            onPointerLeave={stopHold}
+            onPointerCancel={stopHold}
             disabled={inputsLocked}
           >
             −
@@ -347,13 +463,33 @@ export function BetSlotPanel({ slot }: Props) {
           />
           <button
             type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:bg-white/10 disabled:opacity-40"
-            onClick={() => bump(10)}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-av-border bg-black/40 text-lg font-bold text-white/80 active:scale-95 active:bg-white/10 disabled:opacity-40"
+            onPointerDown={() => !inputsLocked && startHold(10)}
+            onPointerUp={stopHold}
+            onPointerLeave={stopHold}
+            onPointerCancel={stopHold}
             disabled={inputsLocked}
           >
             +
           </button>
         </div>
+
+        {/* Balance usage bar */}
+        {user && !inputsLocked && (
+          <div className="mt-1.5">
+            <div className="h-1 overflow-hidden rounded-full bg-white/10">
+              <div
+                className={`h-full rounded-full transition-all duration-200 ${
+                  balancePct > 80 ? 'bg-av-red' : balancePct > 40 ? 'bg-av-gold' : 'bg-av-green'
+                }`}
+                style={{ width: `${balancePct}%` }}
+              />
+            </div>
+            <div className="mt-0.5 text-[10px] text-av-muted">
+              {balancePct.toFixed(0)}% of balance
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 grid grid-cols-5 gap-1">
           {QUICK.map((v) => (
@@ -362,7 +498,7 @@ export function BetSlotPanel({ slot }: Props) {
               type="button"
               disabled={inputsLocked}
               onClick={() => setAmountSafe(v)}
-              className={`rounded-md border py-1.5 text-xs font-semibold active:scale-95 disabled:opacity-40 ${
+              className={`chip-tap rounded-md border py-1.5 text-xs font-semibold active:scale-95 disabled:opacity-40 ${
                 amount === v
                   ? 'border-av-red bg-av-red/20 text-white'
                   : 'border-av-border bg-black/30 text-white/70 hover:bg-white/10'
@@ -378,7 +514,7 @@ export function BetSlotPanel({ slot }: Props) {
             type="button"
             disabled={inputsLocked}
             onClick={half}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 disabled:opacity-40"
+            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
           >
             ½
           </button>
@@ -386,7 +522,7 @@ export function BetSlotPanel({ slot }: Props) {
             type="button"
             disabled={inputsLocked}
             onClick={double}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 disabled:opacity-40"
+            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
           >
             2×
           </button>
@@ -394,7 +530,8 @@ export function BetSlotPanel({ slot }: Props) {
             type="button"
             disabled={inputsLocked || !user}
             onClick={maxAll}
-            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 disabled:opacity-40"
+            className="rounded-md border border-av-border bg-black/30 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 active:scale-95 disabled:opacity-40"
+            title="Use full balance (confirm by pressing Bet)"
           >
             MAX
           </button>
@@ -425,12 +562,19 @@ export function BetSlotPanel({ slot }: Props) {
                 type="button"
                 disabled={inputsLocked}
                 onClick={() => setAutoCash(v.toFixed(2))}
-                className="rounded-md border border-av-border bg-black/30 px-2 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/10 disabled:opacity-40"
+                className={`rounded-md border px-2 py-1 text-[11px] font-semibold active:scale-95 disabled:opacity-40 ${
+                  Number(autoCash) === v
+                    ? 'border-av-green/50 bg-av-green/15 text-av-green'
+                    : 'border-av-border bg-black/30 text-white/70 hover:bg-white/10'
+                }`}
               >
                 {v}x
               </button>
             ))}
           </div>
+          <p className="mt-1 text-[10px] text-av-muted">
+            Green line on the graph marks your auto target while flying.
+          </p>
         </div>
       )}
 
@@ -439,23 +583,31 @@ export function BetSlotPanel({ slot }: Props) {
           Log in to play
         </Link>
       ) : !activeBet ? (
-        <button
-          type="button"
-          className="btn-primary w-full flex-col gap-0.5 !rounded-xl py-3.5"
-          disabled={busy || safeAmount > credits}
-          onClick={() => void place()}
-        >
-          <span className="text-[15px] font-extrabold uppercase tracking-wide">
-            {phase === 'WAITING' || phase === 'COUNTDOWN' ? 'Bet' : 'Bet (next round)'}
-          </span>
-          <span className="font-mono text-xs font-semibold opacity-90">
-            {safeAmount.toLocaleString()} VC
-          </span>
-        </button>
+        <div>
+          <button
+            type="button"
+            className="btn-primary w-full flex-col gap-0.5 !rounded-xl py-3.5 active:scale-[0.98]"
+            disabled={busy || safeAmount > credits}
+            onClick={() => void place()}
+            title={placeDisabledReason ?? undefined}
+          >
+            <span className="text-[15px] font-extrabold uppercase tracking-wide">
+              {phase === 'WAITING' || phase === 'COUNTDOWN' ? 'Bet' : 'Bet (next round)'}
+            </span>
+            <span className="font-mono text-xs font-semibold opacity-90">
+              {safeAmount.toLocaleString()} VC
+            </span>
+          </button>
+          {placeDisabledReason && safeAmount > credits && (
+            <p className="mt-1 text-center text-[10px] font-semibold text-av-red/90">
+              {placeDisabledReason}
+            </p>
+          )}
+        </div>
       ) : activeBet.status === 'QUEUED' ? (
         <button
           type="button"
-          className="btn-cancel w-full flex-col !rounded-xl py-3.5"
+          className="btn-cancel w-full flex-col !rounded-xl py-3.5 active:scale-[0.98]"
           disabled={!canCancel || busy}
           onClick={() => void cancel()}
         >
@@ -466,18 +618,26 @@ export function BetSlotPanel({ slot }: Props) {
         <div className="space-y-2">
           <button
             type="button"
-            className="btn-success w-full flex-col !rounded-xl py-3.5 shadow-[0_0_24px_rgba(40,169,9,0.35)]"
+            className={`btn-success w-full flex-col !rounded-xl py-3.5 shadow-[0_0_24px_rgba(40,169,9,0.35)] cash-heat-${cashHeat} active:scale-[0.98]`}
             disabled={busy}
             onClick={() => void cashOut(1)}
           >
             <span className="text-[15px] font-extrabold uppercase tracking-wide">Cash Out</span>
-            <span className="font-mono text-sm font-bold">
-              {(activeBet.remainingAmount * multiplier).toFixed(2)} VC
+            <span className="font-mono text-sm font-bold tabular-nums">
+              {(livePotential ?? activeBet.remainingAmount * multiplier).toFixed(2)} VC
+            </span>
+            <span className="text-[10px] font-semibold opacity-80">
+              +
+              {(
+                (livePotential ?? activeBet.remainingAmount * multiplier) -
+                activeBet.remainingAmount
+              ).toFixed(2)}{' '}
+              profit
             </span>
           </button>
           <button
             type="button"
-            className="btn-secondary w-full text-xs"
+            className="btn-secondary w-full text-xs active:scale-[0.98]"
             disabled={busy}
             onClick={() => void cashOut(0.5)}
           >

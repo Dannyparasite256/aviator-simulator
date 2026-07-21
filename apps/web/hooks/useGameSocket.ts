@@ -60,6 +60,9 @@ export function useGameSocket() {
 
     socket.on(SOCKET_EVENTS.ROUND_STATE, (s: Record<string, unknown>) => {
       const phase = String(s.phase ?? '');
+      if (phase === 'WAITING' && prevPhase.current !== 'WAITING') {
+        useUiStore.getState().onRoundStart();
+      }
       onPhaseChange(phase, prevPhase.current);
       prevPhase.current = phase;
       useGameStore.getState().applyState(s);
@@ -89,8 +92,15 @@ export function useGameSocket() {
       }) => {
         onPhaseChange('CRASHED', prevPhase.current);
         prevPhase.current = 'CRASHED';
-        useGameStore.getState().applyCrash(c);
-        useUiStore.getState().pushToast({
+        const gs = useGameStore.getState();
+        const ui = useUiStore.getState();
+        const involved =
+          ui.cashedThisRound ||
+          !!(gs.bets[1] && (gs.bets[1].status === 'ACTIVE' || gs.bets[1].cashedOut)) ||
+          !!(gs.bets[2] && (gs.bets[2].status === 'ACTIVE' || gs.bets[2].cashedOut));
+        ui.onRoundCrash(involved);
+        gs.applyCrash(c);
+        ui.pushToast({
           kind: 'crash',
           title: `Flew away @ ${c.crashPoint.toFixed(2)}x`,
           body: 'Tap Fairness to verify this round',
@@ -165,6 +175,7 @@ export function useGameSocket() {
           setUser({ ...u, virtualCredits: r.virtualCredits });
         }
         if (r.cashedOut && r.cashOutMultiplier != null) {
+          useUiStore.getState().recordCashOut(Number(r.cashOutMultiplier));
           useUiStore.getState().pushToast({
             kind: 'win',
             title: `You cashed out @ ${Number(r.cashOutMultiplier).toFixed(2)}x`,

@@ -48,7 +48,7 @@ export function LiveFeed() {
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={`rounded-md py-1.5 text-[11px] font-bold transition ${
+              className={`rounded-md py-1.5 text-[11px] font-bold transition active:scale-[0.98] ${
                 tab === id ? 'bg-av-border text-white' : 'text-av-muted hover:text-white/80'
               }`}
             >
@@ -78,14 +78,17 @@ export function LiveFeed() {
             (a.type === 'CASH_OUT' || a.type === 'PARTIAL') && a.multiplier
               ? a.amount * a.multiplier
               : null;
+          const isCash = winAmt != null;
           return (
             <li
               key={`${a.id}-${a.at}-${i}`}
-              className="row-in grid grid-cols-3 items-center gap-1 border-b border-white/[0.03] px-3 py-2 text-xs"
+              className={`row-in grid grid-cols-3 items-center gap-1 border-b border-white/[0.03] px-3 py-2 text-xs ${
+                isCash ? 'feed-cash-row' : ''
+              }`}
             >
               <div className="flex min-w-0 items-center gap-1.5">
                 <span
-                  className="h-5 w-5 shrink-0 rounded-full"
+                  className="h-5 w-5 shrink-0 rounded-full ring-1 ring-white/10"
                   style={{ background: `hsl(${a.avatarHue} 65% 45%)` }}
                 />
                 <span className="truncate font-medium text-white/85">
